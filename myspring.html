@@ -165,12 +165,25 @@
   .learner-progress-fill { height: 100%; width: 0%; background: var(--accent); transition: width .25s ease; }
   #learner-counter { font-size: 11px; color: var(--text-dim); white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
 
+  .learner-hint {
+    display: none; position: absolute; left: 0; right: 0; bottom: 54px;
+    background: #fdf6e8; color: #8a6116; border-top: 1px solid #d9a441;
+    padding: 8px 22px; font-size: 12px; text-align: center; z-index: 29;
+  }
+
   .course-end-screen {
     position: absolute; inset: 0; background: #ffffff;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     text-align: center; padding: 40px; gap: 12px;
   }
+  .course-end-screen.passed { background: #fbfffd; }
+  .course-end-screen.failed { background: #fffbfb; }
   .course-end-screen h2 { font-size: 22px; margin: 0; color: #1a1a1a; }
+  .course-end-result-badge {
+    font-size: 15px; font-weight: 700; padding: 6px 18px; border-radius: 20px;
+  }
+  .course-end-result-badge.passed { background: #eafcf5; color: #1f8a63; border: 1.5px solid #37d99b; }
+  .course-end-result-badge.failed { background: #fdeef0; color: #c23a4d; border: 1.5px solid var(--danger); }
   .course-end-score { font-size: 15px; color: #1f8a63; font-weight: 600; }
   .course-end-meta { font-size: 12.5px; color: #6b7280; }
   .course-end-actions { display: flex; gap: 10px; margin-top: 10px; }
@@ -369,6 +382,7 @@
     <button id="btn-new-project">＋ Yangi loyiha</button>
     <button id="btn-save">💾 Saqlash</button>
     <button id="btn-reload">↺ Qayta yuklash</button>
+    <button id="btn-course-settings" title="Kurs sozlamalari (o'tish balli va boshqalar)">⚙ Sozlamalar</button>
     <div class="divider"></div>
     <button id="btn-new-slide">＋ Slayd</button>
     <button id="btn-add-text">🅣 Matn</button>
@@ -419,6 +433,7 @@
         </div>
         <button id="learner-next" class="primary">Keyingi →</button>
       </div>
+      <div id="learner-hint" class="learner-hint"></div>
     </div>
 
     <div id="right-panel">
@@ -448,7 +463,18 @@
    Rendering Engine yoki UI kodi buni HECH QACHON to'g'ridan-to'g'ri
    mutatsiya qilmaydi — faqat Command Layer orqali.
    ========================================================================= */
-const SCHEMA_VERSION = "1.2.0";
+const SCHEMA_VERSION = "1.3.0";
+
+// ---- Course Completion Settings (Sprint 4.1) ----
+// Bu — Course/Project Object Model'ning bir qismi, UI State EMAS.
+const DEFAULT_COMPLETION_SETTINGS = {
+  passingScore: 80,                 // 0-100 oralig'idagi foiz
+  requireAllQuizzesSubmitted: true,
+};
+
+function getCompletionSettings(project) {
+  return (project && project.completionSettings) || DEFAULT_COMPLETION_SETTINGS;
+}
 
 // ---- Minimal Theme Tokens (P1-7: to'liq Theme Engine emas, oraliq qadam) ----
 // Har bir loyiha o'zining themeTokens xaritasiga ega; elementlar xom hex
@@ -618,6 +644,7 @@ function createProject(name) {
     schemaVersion: SCHEMA_VERSION,
     name,
     themeTokens: { ...DEFAULT_THEME_TOKENS },
+    completionSettings: { ...DEFAULT_COMPLETION_SETTINGS },
     slides: [createSlide()],
     metadata: { createdAt: Date.now() }
   };
@@ -662,7 +689,10 @@ function migrateProject(rawProject) {
   if (project.schemaVersion === '1.1.0') {
     project = migrate_1_1_0_to_1_2_0(project);
   }
-  // Kelajakda: if (project.schemaVersion === '1.2.0') { project = migrate_1_2_0_to_1_3_0(project); }
+  if (project.schemaVersion === '1.2.0') {
+    project = migrate_1_2_0_to_1_3_0(project);
+  }
+  // Kelajakda: if (project.schemaVersion === '1.3.0') { project = migrate_1_3_0_to_1_4_0(project); }
   if (project.schemaVersion !== fromVersion) {
     console.info(`[Migration] Loyiha schema v${fromVersion} → v${project.schemaVersion}`);
     AppState.commandLog.push({
@@ -680,6 +710,17 @@ function migrate_1_1_0_to_1_2_0(project) {
   return { ...project, schemaVersion: '1.2.0' };
 }
 
+// 1.2.0 -> 1.3.0: Course Completion Settings qo'shiladi. Eski loyihalarda
+// bu maydon yo'q — standart qiymatlar (passingScore:80,
+// requireAllQuizzesSubmitted:true) AVTOMATIK biriktiriladi.
+function migrate_1_2_0_to_1_3_0(project) {
+  return {
+    ...project,
+    schemaVersion: '1.3.0',
+    completionSettings: project.completionSettings || { ...DEFAULT_COMPLETION_SETTINGS }
+  };
+}
+
 /* =========================================================================
    2. COMMAND LAYER
    Yagona mutatsiya eshigi (Single Mutation Gateway).
@@ -689,6 +730,19 @@ function migrate_1_1_0_to_1_2_0(project) {
    ========================================================================= */
 const CommandHandlers = {
   CREATE_PROJECT: (project, { name }) => createProject(name),
+
+  // clamp() — quyida, drag/resize uchun allaqachon mavjud umumiy yordamchi.
+  // passingScore 0-100 oralig'idan tashqariga chiqishi STRUKTURAVIY jihatdan
+  // KONSTRUKSIYA orqali imkonsiz qilinadi (validatsiya qatlamiga muhtoj emas).
+  SET_COURSE_PASSING_SCORE: (project, { passingScore }) => ({
+    ...project,
+    completionSettings: { ...getCompletionSettings(project), passingScore: clamp(Math.round(passingScore), 0, 100) }
+  }),
+
+  SET_REQUIRE_ALL_QUIZZES_SUBMITTED: (project, { required }) => ({
+    ...project,
+    completionSettings: { ...getCompletionSettings(project), requireAllQuizzesSubmitted: !!required }
+  }),
 
   CREATE_SLIDE: (project) => ({
     ...project,
@@ -1013,6 +1067,9 @@ function getRenderSlide() {
 }
 
 function isCurrentLearnerSlideReady() {
+  const project = AppState.objectModel.project;
+  const settings = getCompletionSettings(project);
+  if (!settings.requireAllQuizzesSubmitted) return true; // sozlama o'chirilgan — cheklov yo'q
   const slide = getRenderSlide();
   if (!slide) return true;
   const quizzes = slide.elements.filter(e => e.type === 'quiz');
@@ -1023,12 +1080,41 @@ function isCurrentLearnerSlideReady() {
   });
 }
 
+// Butun kurs bo'yicha (faqat joriy slayd emas) — "requireAllQuizzesSubmitted"
+// qoidasini yakuniy tekshiruv sifatida qo'llaydi (himoya qatlami — odatda
+// bu yerga yetib kelinmaydi, chunki har bir slaydda Next allaqachon
+// bloklangan bo'ladi, lekin kurs yakunlanishi UCHUN alohida, mustaqil
+// tekshiruv bo'lishi kerak).
+function findFirstUnsubmittedRequiredQuiz(project) {
+  const settings = getCompletionSettings(project);
+  if (!settings.requireAllQuizzesSubmitted) return null;
+  for (let i = 0; i < project.slides.length; i++) {
+    const slide = project.slides[i];
+    for (const el of slide.elements) {
+      if (el.type !== 'quiz') continue;
+      const rt = AppState.runtime.quizzes[el.id];
+      if (!rt || !rt.submitted) {
+        return { slideIndex: i, questionText: el.questionText };
+      }
+    }
+  }
+  return null;
+}
+
 function goToNextSlide() {
   const project = AppState.objectModel.project;
   if (!project || AppState.runtime.courseCompleted) return;
   if (!isCurrentLearnerSlideReady()) return; // himoya — tugma allaqachon disabled bo'lishi kerak
   const isLast = AppState.runtime.currentSlideIndex >= project.slides.length - 1;
   if (isLast) {
+    // Sprint 4.1: kurs yakunlanishidan OLDIN, butun kurs bo'yicha yakuniy
+    // tekshiruv — "final natija ekrani completion qoidalari qondirilmasdan
+    // ko'rsatilmasligi kerak" talabi shu yerda amalga oshiriladi.
+    const incomplete = findFirstUnsubmittedRequiredQuiz(project);
+    if (incomplete) {
+      toast(`⚠ ${incomplete.slideIndex + 1}-slayddagi savolga hali javob berilmagan — kursni yakunlab bo'lmaydi.`);
+      return; // Course Completed ekrani ko'rsatilmaydi
+    }
     AppState.runtime.courseCompleted = true;
   } else {
     AppState.runtime.currentSlideIndex += 1;
@@ -1042,6 +1128,12 @@ function goToPreviousSlide() {
   render();
 }
 
+// Sprint 4.1: Restart — faqat Runtime State'ni tozalaydi (quiz tanlovlari,
+// submitted holatlari, joriy slayd). Course result — Derived State bo'lgani
+// uchun alohida "tozalash" talab qilmaydi: quizzes bo'sh + courseCompleted
+// false bo'lgach, computeCourseResult() avtomatik "hali boshlanmagan"
+// holatni qaytaradi. Object Model (completionSettings ham) BUTUNLAY
+// tegilmaydi.
 function restartCourse() {
   resetRuntimeState();
   render();
@@ -1051,6 +1143,62 @@ function computeCourseCompletionPercentage(project) {
   if (!project || project.slides.length === 0) return 0;
   if (AppState.runtime.courseCompleted) return 100;
   return Math.round(((AppState.runtime.currentSlideIndex + 1) / project.slides.length) * 100);
+}
+
+/* =========================================================================
+   COURSE-LEVEL RESULT — Pure Derived Function (Sprint 4.1)
+   Hech qachon saqlanmaydi — har chaqiruvda Object Model
+   (completionSettings) + Runtime State (AppState.runtime)dan qayta
+   hisoblanadi. Bu State Management Bo'lim 7/16 (Derived State) tamoyilining
+   davomi: "score" allaqachon shunday edi, endi "passed/failed" ham xuddi
+   shu tamoyilga bo'ysunadi.
+   ========================================================================= */
+function computeCourseResult(project) {
+  const allQuizzes = [];
+  project.slides.forEach(slide => slide.elements.forEach(el => {
+    if (el.type === 'quiz') allQuizzes.push(el);
+  }));
+  const totalQuizCount = allQuizzes.length;
+
+  let submittedQuizCount = 0;
+  let correctQuizCount = 0;
+  allQuizzes.forEach(q => {
+    const rt = AppState.runtime.quizzes[q.id];
+    if (rt && rt.submitted) {
+      submittedQuizCount++;
+      const r = computeQuizResult(q, rt);
+      if (r && r.isCorrect) correctQuizCount++;
+    }
+  });
+
+  const settings = getCompletionSettings(project);
+
+  // "completed" — requireAllQuizzesSubmitted qoidasini hurmat qiladi.
+  // Odatda bu himoya hech qachon ishga tushmaydi (goToNextSlide allaqachon
+  // bloklaydi), lekin Derived State — o'zi mustaqil to'g'ri bo'lishi kerak,
+  // faqat UI bloklashiga ishonib qolmasligi kerak.
+  let completed = AppState.runtime.courseCompleted;
+  if (settings.requireAllQuizzesSubmitted && totalQuizCount > 0 && submittedQuizCount < totalQuizCount) {
+    completed = false;
+  }
+
+  // Ball — HAR DOIM jami quiz soniga nisbatan hisoblanadi (faqat
+  // submitted'larga emas) — javobsiz qolgan majburiy savollar "maxrajdan
+  // yashirincha chiqarib tashlanmaydi", ular 0 ball sifatida hisoblanadi.
+  //
+  // Qoida (savolsiz kurs uchun, aniq hujjatlashtirilgan): agar kursda
+  // umuman Quiz bo'lmasa (totalQuizCount === 0), baholaydigan hech narsa
+  // yo'q — scorePercent shartli ravishda 100% deb olinadi, ya'ni bunday
+  // kurs tugallangach har doim "O'tdi" hisoblanadi (agar passingScore future
+  // 100'dan katta bo'lmasa, bu har doim rost bo'ladi).
+  const scorePercent = totalQuizCount > 0
+    ? Math.round((correctQuizCount / totalQuizCount) * 100)
+    : 100;
+
+  const passed = completed && scorePercent >= settings.passingScore;
+  const failed = completed && scorePercent < settings.passingScore;
+
+  return { scorePercent, passed, failed, completed, submittedQuizCount, totalQuizCount, correctQuizCount };
 }
 
 // ---- Selection helpers (faqat UI State'ga tegadi, Object Model'ga hech qachon) ----
@@ -1305,8 +1453,18 @@ function renderLearnerMode() {
   document.getElementById('learner-prev').disabled = completed || idx === 0;
 
   const nextBtn = document.getElementById('learner-next');
-  nextBtn.disabled = completed || !isCurrentLearnerSlideReady();
+  const slideReady = isCurrentLearnerSlideReady();
+  nextBtn.disabled = completed || !slideReady;
   nextBtn.textContent = isLast ? "Kursni yakunlash ✓" : 'Keyingi →';
+
+  // Sprint 4.1: "aniq xabar — qaysi quiz/slayd tugallanmagan" talabi.
+  const hintEl = document.getElementById('learner-hint');
+  if (!completed && !slideReady) {
+    hintEl.style.display = 'block';
+    hintEl.textContent = "⚠ Davom etish uchun ushbu slayddagi savol(lar)ga javob bering va Submit qiling.";
+  } else {
+    hintEl.style.display = 'none';
+  }
 }
 
 function exitLearnerMode() {
@@ -1370,6 +1528,7 @@ function renderTopbarState() {
   const selCount = AppState.ui.selectedElementIds.size;
 
   document.getElementById('btn-save').disabled = !hasProject;
+  document.getElementById('btn-course-settings').disabled = !hasProject;
   document.getElementById('btn-new-slide').disabled = !hasProject;
   document.getElementById('btn-add-text').disabled = !hasProject || !isEdit;
   document.getElementById('btn-add-image').disabled = !hasProject || !isEdit;
@@ -1818,25 +1977,38 @@ function renderQuizRuntimeBody(el) {
   return container;
 }
 
-/* ---------- Course End Screen (Sprint 4) ----------
-   Object Model'ga hech qanday ta'sir qilmaydi — faqat Runtime State
-   (score — Derived State, Bo'lim computePreviewScore) asosida chiziladi. */
+/* ---------- Course End Screen (Sprint 4 / 4.1) ----------
+   Object Model'ga hech qanday ta'sir qilmaydi — to'liq computeCourseResult()
+   (pure Derived Function) asosida chiziladi. "Course Completed" bilan
+   "Passed" ATAYLAB farqlanadi — navigatsiyani tugatish muvaffaqiyat
+   demak emas (talab #4). */
 function renderCourseEndScreen(project) {
   const wrap = document.createElement('div');
-  wrap.className = 'course-end-screen';
+  const result = computeCourseResult(project);
+  const settings = getCompletionSettings(project);
+
+  wrap.className = 'course-end-screen ' + (result.passed ? 'passed' : (result.failed ? 'failed' : ''));
 
   const h2 = document.createElement('h2');
-  h2.textContent = '🎉 Kurs yakunlandi!';
+  h2.textContent = result.passed ? '🎉 Kurs yakunlandi!' : (result.failed ? '📋 Kurs yakunlandi' : '✔ Kurs yakunlandi');
   wrap.appendChild(h2);
 
-  const { correct, total } = computePreviewScore(project); // Derived State — hech qachon saqlanmaydi
-  if (total > 0) {
-    const scoreEl = document.createElement('div');
-    scoreEl.className = 'course-end-score';
-    const pct = Math.round((correct / total) * 100);
-    scoreEl.textContent = `Natija: ${correct}/${total} to'g'ri (${pct}%)`;
-    wrap.appendChild(scoreEl);
+  if (result.passed || result.failed) {
+    const badge = document.createElement('div');
+    badge.className = 'course-end-result-badge ' + (result.passed ? 'passed' : 'failed');
+    badge.textContent = result.passed ? "O'tdi ✓" : "O'tmadi ✕";
+    wrap.appendChild(badge);
   }
+
+  const scoreEl = document.createElement('div');
+  scoreEl.className = 'course-end-score';
+  scoreEl.textContent = `Yakuniy ball: ${result.scorePercent}%  ·  O'tish balli: ${settings.passingScore}%`;
+  wrap.appendChild(scoreEl);
+
+  const submittedEl = document.createElement('div');
+  submittedEl.className = 'course-end-meta';
+  submittedEl.textContent = `Javob berilgan savollar: ${result.submittedQuizCount} / ${result.totalQuizCount}`;
+  wrap.appendChild(submittedEl);
 
   const completionEl = document.createElement('div');
   completionEl.className = 'course-end-meta';
@@ -2492,6 +2664,53 @@ function dispatchBootstrap(command) {
 }
 
 document.getElementById('btn-save').addEventListener('click', saveProject);
+
+document.getElementById('btn-course-settings').addEventListener('click', showCourseSettingsModal);
+
+// Sprint 4.1: minimal Kurs Sozlamalari modali. Barcha o'zgarishlar
+// Command Layer orqali (SET_COURSE_PASSING_SCORE /
+// SET_REQUIRE_ALL_QUIZZES_SUBMITTED) — shuning uchun Undo/Redo, Save/Reload
+// va Schema Migration bilan avtomatik moslashadi (alohida kod yozilmagan).
+function showCourseSettingsModal() {
+  const project = AppState.objectModel.project;
+  if (!project) return;
+  const settings = getCompletionSettings(project);
+
+  const backdrop = document.getElementById('modal-backdrop');
+  const modal = document.getElementById('modal');
+  modal.innerHTML = `
+    <h3>Kurs sozlamalari</h3>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">O'tish balli (%)</label>
+      <input id="settings-passing-score" type="number" min="0" max="100" step="1" value="${settings.passingScore}" />
+    </div>
+    <div style="margin-bottom:16px; display:flex; align-items:center; gap:8px;">
+      <input id="settings-require-all" type="checkbox" ${settings.requireAllQuizzesSubmitted ? 'checked' : ''} />
+      <label for="settings-require-all" style="font-size:12px;">Barcha savollarga javob berish majburiy (Preview'ni yakunlash uchun)</label>
+    </div>
+    <div class="row">
+      <button id="modal-cancel">Bekor qilish</button>
+      <button id="modal-ok" class="primary">Saqlash</button>
+    </div>
+  `;
+  backdrop.classList.add('open');
+
+  document.getElementById('modal-cancel').onclick = () => backdrop.classList.remove('open');
+  document.getElementById('modal-ok').onclick = () => {
+    const scoreInput = document.getElementById('settings-passing-score');
+    const requireInput = document.getElementById('settings-require-all');
+    const newScore = clamp(Math.round(Number(scoreInput.value) || 0), 0, 100);
+    const newRequire = requireInput.checked;
+
+    if (newScore !== settings.passingScore) {
+      dispatch({ type: 'SET_COURSE_PASSING_SCORE', payload: { passingScore: newScore } });
+    }
+    if (newRequire !== settings.requireAllQuizzesSubmitted) {
+      dispatch({ type: 'SET_REQUIRE_ALL_QUIZZES_SUBMITTED', payload: { required: newRequire } });
+    }
+    backdrop.classList.remove('open');
+  };
+}
 document.getElementById('btn-reload').addEventListener('click', reloadProject);
 
 document.getElementById('btn-new-slide').addEventListener('click', () => {
