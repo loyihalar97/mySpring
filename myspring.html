@@ -1182,23 +1182,48 @@ function computeCourseResult(project) {
     completed = false;
   }
 
+  // MUHIM TUZATISH: "Completion" va "Assessment" — ikkita mustaqil
+  // tushuncha. 100% ball — baholash mavjud bo'lib, barcha savollarga
+  // to'g'ri javob berilgani degan ma'noni anglatadi. Agar kursda umuman
+  // Quiz elementi bo'lmasa — baholashning O'ZI yo'q, shuning uchun soxta
+  // ball yoki Pass/Fail natija HECH QACHON o'ylab topilmaydi (fabricate
+  // qilinmaydi). Bunday holatda faqat "completed" (yakunlandi) haqiqat,
+  // ball/passingScore/passed/failed — barchasi `null`.
+  if (totalQuizCount === 0) {
+    return {
+      assessmentAvailable: false,
+      scorePercent: null,
+      passingScore: null,
+      passed: null,
+      failed: null,
+      completed,
+      status: completed ? 'completed' : 'incomplete',
+      submittedQuizCount: 0,
+      totalQuizCount: 0,
+      correctQuizCount: 0,
+    };
+  }
+
   // Ball — HAR DOIM jami quiz soniga nisbatan hisoblanadi (faqat
   // submitted'larga emas) — javobsiz qolgan majburiy savollar "maxrajdan
   // yashirincha chiqarib tashlanmaydi", ular 0 ball sifatida hisoblanadi.
-  //
-  // Qoida (savolsiz kurs uchun, aniq hujjatlashtirilgan): agar kursda
-  // umuman Quiz bo'lmasa (totalQuizCount === 0), baholaydigan hech narsa
-  // yo'q — scorePercent shartli ravishda 100% deb olinadi, ya'ni bunday
-  // kurs tugallangach har doim "O'tdi" hisoblanadi (agar passingScore future
-  // 100'dan katta bo'lmasa, bu har doim rost bo'ladi).
-  const scorePercent = totalQuizCount > 0
-    ? Math.round((correctQuizCount / totalQuizCount) * 100)
-    : 100;
-
+  const scorePercent = Math.round((correctQuizCount / totalQuizCount) * 100);
   const passed = completed && scorePercent >= settings.passingScore;
   const failed = completed && scorePercent < settings.passingScore;
+  const status = passed ? 'passed' : (failed ? 'failed' : 'incomplete');
 
-  return { scorePercent, passed, failed, completed, submittedQuizCount, totalQuizCount, correctQuizCount };
+  return {
+    assessmentAvailable: true,
+    scorePercent,
+    passingScore: settings.passingScore,
+    passed,
+    failed,
+    completed,
+    status,
+    submittedQuizCount,
+    totalQuizCount,
+    correctQuizCount,
+  };
 }
 
 // ---- Selection helpers (faqat UI State'ga tegadi, Object Model'ga hech qachon) ----
@@ -1985,7 +2010,6 @@ function renderQuizRuntimeBody(el) {
 function renderCourseEndScreen(project) {
   const wrap = document.createElement('div');
   const result = computeCourseResult(project);
-  const settings = getCompletionSettings(project);
 
   wrap.className = 'course-end-screen ' + (result.passed ? 'passed' : (result.failed ? 'failed' : ''));
 
@@ -1993,22 +2017,37 @@ function renderCourseEndScreen(project) {
   h2.textContent = result.passed ? '🎉 Kurs yakunlandi!' : (result.failed ? '📋 Kurs yakunlandi' : '✔ Kurs yakunlandi');
   wrap.appendChild(h2);
 
-  if (result.passed || result.failed) {
-    const badge = document.createElement('div');
-    badge.className = 'course-end-result-badge ' + (result.passed ? 'passed' : 'failed');
-    badge.textContent = result.passed ? "O'tdi ✓" : "O'tmadi ✕";
-    wrap.appendChild(badge);
+  if (!result.assessmentAvailable) {
+    // Kursda umuman Quiz elementi yo'q — baholashning o'zi mavjud emas.
+    // Soxta ball, o'tish balli yoki Pass/Fail HECH QACHON ko'rsatilmaydi.
+    const assessmentEl = document.createElement('div');
+    assessmentEl.className = 'course-end-meta';
+    assessmentEl.textContent = 'Baholash: kiritilmagan';
+    wrap.appendChild(assessmentEl);
+
+    const resultEl = document.createElement('div');
+    resultEl.className = 'course-end-score';
+    resultEl.style.color = '#6b7280';
+    resultEl.textContent = 'Natija: Yakunlandi';
+    wrap.appendChild(resultEl);
+  } else {
+    if (result.passed || result.failed) {
+      const badge = document.createElement('div');
+      badge.className = 'course-end-result-badge ' + (result.passed ? 'passed' : 'failed');
+      badge.textContent = result.passed ? "O'tdi ✓" : "O'tmadi ✕";
+      wrap.appendChild(badge);
+    }
+
+    const scoreEl = document.createElement('div');
+    scoreEl.className = 'course-end-score';
+    scoreEl.textContent = `Yakuniy ball: ${result.scorePercent}%  ·  O'tish balli: ${result.passingScore}%`;
+    wrap.appendChild(scoreEl);
+
+    const submittedEl = document.createElement('div');
+    submittedEl.className = 'course-end-meta';
+    submittedEl.textContent = `Javob berilgan savollar: ${result.submittedQuizCount} / ${result.totalQuizCount}`;
+    wrap.appendChild(submittedEl);
   }
-
-  const scoreEl = document.createElement('div');
-  scoreEl.className = 'course-end-score';
-  scoreEl.textContent = `Yakuniy ball: ${result.scorePercent}%  ·  O'tish balli: ${settings.passingScore}%`;
-  wrap.appendChild(scoreEl);
-
-  const submittedEl = document.createElement('div');
-  submittedEl.className = 'course-end-meta';
-  submittedEl.textContent = `Javob berilgan savollar: ${result.submittedQuizCount} / ${result.totalQuizCount}`;
-  wrap.appendChild(submittedEl);
 
   const completionEl = document.createElement('div');
   completionEl.className = 'course-end-meta';
