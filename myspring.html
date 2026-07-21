@@ -109,6 +109,7 @@
     font-size: 11px; color: var(--text-dim);
   }
   .slide-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .slide-thumb.drag-over { border-color: #5aa9ff; box-shadow: 0 0 0 2px #5aa9ff55; }
   .slide-thumb .num {
     position: absolute; top: 4px; left: 6px; font-family: 'JetBrains Mono', monospace;
     font-size: 10px; color: var(--text-dim);
@@ -117,6 +118,31 @@
     width: 90%; height: 76%; background: white; border-radius: 3px; position: relative;
   }
   .slide-thumb-inner .mini-el { position: absolute; background: #37d99b55; border: 1px solid #37d99b; border-radius: 1px; }
+
+  .thumb-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; opacity: 0; transition: opacity .12s; }
+  .slide-thumb:hover .thumb-actions { opacity: 1; }
+  .thumb-btn {
+    width: 18px; height: 18px; font-size: 10px; padding: 0; border-radius: 4px;
+    background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.18); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .thumb-btn:hover:not(:disabled) { background: rgba(0,0,0,.8); border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- DROPDOWN (Shakl menyusi) ---------- */
+  .dropdown-wrap { position: relative; }
+  .dropdown-menu {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0;
+    background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px; z-index: 40; flex-direction: column; gap: 2px; min-width: 172px;
+    box-shadow: 0 10px 26px -6px rgba(0,0,0,.5);
+  }
+  .dropdown-menu.open { display: flex; }
+  .dropdown-menu button { justify-content: flex-start; width: 100%; }
+
+  #autosave-indicator {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.3px; color: var(--text-dim);
+    margin-left: 2px; white-space: nowrap;
+  }
 
   #center-panel {
     flex: 1; display: flex; align-items: center; justify-content: center;
@@ -163,6 +189,8 @@
     width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
     font-size: 11px; color: #9aa2b1; text-align: center; padding: 6px;
   }
+  .el[data-type="shape"] { cursor: move; }
+  .el[data-type="shape"] svg { display: block; pointer-events: none; }
 
   .overlay-box {
     position: absolute; border: 1.5px solid var(--overlay);
@@ -257,10 +285,21 @@
     <button id="btn-new-slide">＋ Slayd</button>
     <button id="btn-add-text">🅣 Matn</button>
     <button id="btn-add-image">🖼 Rasm</button>
+    <input type="file" id="file-image-input" accept="image/*" style="display:none" />
+    <div class="dropdown-wrap">
+      <button id="btn-add-shape">▱ Shakl</button>
+      <div id="shape-menu" class="dropdown-menu"></div>
+    </div>
+    <div class="divider"></div>
+    <button id="btn-copy" title="Nusxalash (Ctrl+C)">⧉ Copy</button>
+    <button id="btn-paste" title="Joylash (Ctrl+V)">📋 Paste</button>
+    <button id="btn-duplicate" title="Ikkilamchi nusxa (Ctrl+D)">⎘ Duplicate</button>
+    <button id="btn-delete" title="O'chirish (Delete)">🗑 Delete</button>
     <div class="divider"></div>
     <button id="btn-undo" class="icon-only" title="Undo (Ctrl+Z)">↶ Undo</button>
     <button id="btn-redo" class="icon-only" title="Redo (Ctrl+Y)">↷ Redo</button>
     <div class="spacer"></div>
+    <span id="autosave-indicator"></span>
     <div id="mode-toggle">
       <button id="mode-edit" class="active">✎ Tahrirlash</button>
       <button id="mode-preview">▶ Preview</button>
@@ -316,18 +355,61 @@ function uuid() {
     }));
 }
 
-function createElement(type, x, y, extra = {}) {
-  const base = {
-    id: uuid(),
-    type,
-    x, y,
-    width: extra.width ?? (type === 'text' ? 240 : 220),
-    height: extra.height ?? (type === 'text' ? 50 : 160),
+const SHAPE_DEFAULTS = {
+  rectangle: { width: 200, height: 120 },
+  roundedRectangle: { width: 200, height: 120 },
+  circle: { width: 140, height: 140 },
+  line: { width: 220, height: 6 },
+};
+
+function createTextElement(x, y, text) {
+  return {
+    id: uuid(), type: 'text', x, y,
+    width: 240, height: 50,
+    text: text ?? 'Matnni bosing va tahrirlang',
     metadata: { createdAt: Date.now() }
   };
-  if (type === 'text') base.text = extra.text ?? 'Matnni bosing va tahrirlang';
-  if (type === 'image') base.src = extra.src ?? '';
-  return base;
+}
+
+function createImageElement(x, y, { assetId = null, src = null } = {}) {
+  return {
+    id: uuid(), type: 'image', x, y,
+    width: 220, height: 160,
+    assetId,   // Uploaded rasm — haqiqiy binary AssetStorage'da, bu yerda faqat havola
+    src,       // Legacy/tashqi URL orqali qo'shilgan rasm (orqaga moslik uchun)
+    metadata: { createdAt: Date.now() }
+  };
+}
+
+function createShapeElement(shapeType, x, y) {
+  const d = SHAPE_DEFAULTS[shapeType] || { width: 160, height: 100 };
+  return {
+    id: uuid(), type: 'shape', shapeType, x, y,
+    width: d.width, height: d.height,
+    fill: '#37d99b', stroke: '#1f8a63',
+    metadata: { createdAt: Date.now() }
+  };
+}
+
+// Element'ni yangi ID bilan klonlash (Duplicate/Paste uchun umumiy).
+function cloneElementWithNewId(el, offsetX = 16, offsetY = 16) {
+  return {
+    ...el,
+    id: uuid(),
+    x: el.x + offsetX,
+    y: el.y + offsetY,
+    metadata: { ...el.metadata, createdAt: Date.now() }
+  };
+}
+
+// Slaydni klonlash — barcha ichidagi Element'lar ham yangi ID oladi,
+// aks holda ikkita slaydda bir xil elementId qoldirib, Command Layer
+// bog'lanishlarini (referential integrity) buzib qo'yardi.
+function cloneSlideWithNewIds(slide) {
+  return {
+    id: uuid(),
+    elements: slide.elements.map(el => ({ ...el, id: uuid(), metadata: { ...el.metadata } }))
+  };
 }
 
 function createSlide() {
@@ -359,18 +441,52 @@ const CommandHandlers = {
     slides: [...project.slides, createSlide()]
   }),
 
+  DELETE_SLIDE: (project, { slideId }) => ({
+    ...project,
+    slides: project.slides.filter(s => s.id !== slideId)
+  }),
+
+  DUPLICATE_SLIDE: (project, { slideId }) => {
+    const idx = project.slides.findIndex(s => s.id === slideId);
+    if (idx === -1) return project;
+    const clone = cloneSlideWithNewIds(project.slides[idx]);
+    const slides = [...project.slides];
+    slides.splice(idx + 1, 0, clone);
+    return { ...project, slides };
+  },
+
+  REORDER_SLIDES: (project, { orderedSlideIds }) => {
+    const map = new Map(project.slides.map(s => [s.id, s]));
+    const slides = orderedSlideIds.map(id => map.get(id)).filter(Boolean);
+    if (slides.length !== project.slides.length) return project; // muvofiqsizlik — o'zgarishsiz qoldirish
+    return { ...project, slides };
+  },
+
   ADD_TEXT_ELEMENT: (project, { slideId, x, y }) => mutateSlide(project, slideId, slide => ({
     ...slide,
-    elements: [...slide.elements, createElement('text', x, y)]
+    elements: [...slide.elements, createTextElement(x, y)]
   })),
 
-  ADD_IMAGE_ELEMENT: (project, { slideId, x, y, src }) => mutateSlide(project, slideId, slide => ({
+  ADD_IMAGE_ELEMENT: (project, { slideId, x, y, assetId, src }) => mutateSlide(project, slideId, slide => ({
     ...slide,
-    elements: [...slide.elements, createElement('image', x, y, { src })]
+    elements: [...slide.elements, createImageElement(x, y, { assetId, src })]
+  })),
+
+  ADD_SHAPE_ELEMENT: (project, { slideId, shapeType, x, y }) => mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: [...slide.elements, createShapeElement(shapeType, x, y)]
   })),
 
   MOVE_ELEMENT: (project, { slideId, elementId, x, y }) => mutateElement(project, slideId, elementId, el => ({
     ...el, x, y
+  })),
+
+  MOVE_ELEMENTS: (project, { slideId, moves }) => mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: slide.elements.map(el => {
+      const m = moves.find(m => m.elementId === el.id);
+      return m ? { ...el, x: m.x, y: m.y } : el;
+    })
   })),
 
   RESIZE_ELEMENT: (project, { slideId, elementId, width, height }) => mutateElement(project, slideId, elementId, el => ({
@@ -381,6 +497,27 @@ const CommandHandlers = {
 
   SET_TEXT: (project, { slideId, elementId, text }) => mutateElement(project, slideId, elementId, el => ({
     ...el, text
+  })),
+
+  DELETE_ELEMENT: (project, { slideId, elementId }) => mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: slide.elements.filter(el => el.id !== elementId)
+  })),
+
+  DELETE_ELEMENTS: (project, { slideId, elementIds }) => mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: slide.elements.filter(el => !elementIds.includes(el.id))
+  })),
+
+  DUPLICATE_ELEMENT: (project, { slideId, elementId }) => mutateSlide(project, slideId, slide => {
+    const original = slide.elements.find(el => el.id === elementId);
+    if (!original) return slide;
+    return { ...slide, elements: [...slide.elements, cloneElementWithNewId(original)] };
+  }),
+
+  PASTE_ELEMENTS: (project, { slideId, elements }) => mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: [...slide.elements, ...elements.map(el => cloneElementWithNewId(el, 20, 20))]
   })),
 };
 
@@ -401,6 +538,9 @@ function mutateElement(project, slideId, elementId, fn) {
 function validateCommand(project, command) {
   if (!CommandHandlers[command.type]) return `Noma'lum Command turi: ${command.type}`;
   if (command.type !== 'CREATE_PROJECT' && !project) return 'Loyiha mavjud emas';
+  if (command.type === 'DELETE_SLIDE' && project && project.slides.length <= 1) {
+    return 'Kamida bitta slayd qolishi kerak';
+  }
   return null;
 }
 
@@ -415,12 +555,23 @@ const AppState = {
   objectModel: { project: null },          // == Object Model State ==
   ui: {                                     // == UI / Local Editor State ==
     activeSlideId: null,
-    selectedElementId: null,
+    selectedElementIds: new Set(),          // ko'p-tanlov (Shift+Click)
     mode: 'edit',                           // 'edit' | 'preview'
+    clipboard: [],                          // Copy/Paste — ephemeral, hech qachon persistlanmaydi
+    draggingSlideId: null,                  // slaydni sudrab tartiblash uchun vaqtinchalik holat
   },
   history: { stack: [], pointer: -1 },      // == History / Undo-Redo ==
   commandLog: [],                           // Audit — Command/Event Bo'lim 30 soddalashtirilgan
 };
+
+// ---- Selection helpers (faqat UI State'ga tegadi, Object Model'ga hech qachon) ----
+function selectOnly(id) { AppState.ui.selectedElementIds = new Set([id]); }
+function toggleSelect(id) {
+  const s = new Set(AppState.ui.selectedElementIds);
+  if (s.has(id)) s.delete(id); else s.add(id);
+  AppState.ui.selectedElementIds = s;
+}
+function clearSelection() { AppState.ui.selectedElementIds = new Set(); }
 
 // Dispatch — Command Execution Pipeline (soddalashtirilgan: validate -> apply -> emit -> render)
 function dispatch(command) {
@@ -439,6 +590,7 @@ function dispatch(command) {
 
   pushHistory(newProject);
   render();
+  scheduleAutosave();
 }
 
 function pushHistory(project) {
@@ -456,6 +608,7 @@ function undo() {
   AppState.objectModel.project = h.stack[h.pointer];
   markLastLogUndone(true);
   render();
+  scheduleAutosave();
 }
 function redo() {
   const h = AppState.history;
@@ -464,6 +617,7 @@ function redo() {
   AppState.objectModel.project = h.stack[h.pointer];
   markLastLogUndone(false);
   render();
+  scheduleAutosave();
 }
 
 function logCommand(command, error) {
@@ -517,15 +671,23 @@ function renderStorageBanner() {
 
 function renderTopbarState() {
   const hasProject = !!AppState.objectModel.project;
+  const isEdit = AppState.ui.mode === 'edit';
+  const selCount = AppState.ui.selectedElementIds.size;
+
   document.getElementById('btn-save').disabled = !hasProject;
   document.getElementById('btn-new-slide').disabled = !hasProject;
-  document.getElementById('btn-add-text').disabled = !hasProject || AppState.ui.mode === 'preview';
-  document.getElementById('btn-add-image').disabled = !hasProject || AppState.ui.mode === 'preview';
+  document.getElementById('btn-add-text').disabled = !hasProject || !isEdit;
+  document.getElementById('btn-add-image').disabled = !hasProject || !isEdit;
+  document.getElementById('btn-add-shape').disabled = !hasProject || !isEdit;
+  document.getElementById('btn-copy').disabled = !hasProject || !isEdit || selCount === 0;
+  document.getElementById('btn-paste').disabled = !hasProject || !isEdit || AppState.ui.clipboard.length === 0;
+  document.getElementById('btn-duplicate').disabled = !hasProject || !isEdit || selCount !== 1;
+  document.getElementById('btn-delete').disabled = !hasProject || !isEdit || selCount === 0;
   document.getElementById('btn-undo').disabled = AppState.history.pointer <= 0;
   document.getElementById('btn-redo').disabled = AppState.history.pointer >= AppState.history.stack.length - 1;
 
-  document.getElementById('mode-edit').classList.toggle('active', AppState.ui.mode === 'edit');
-  document.getElementById('mode-preview').classList.toggle('active', AppState.ui.mode === 'preview');
+  document.getElementById('mode-edit').classList.toggle('active', isEdit);
+  document.getElementById('mode-preview').classList.toggle('active', !isEdit);
 
   document.getElementById('stage-label').textContent = hasProject
     ? `${AppState.objectModel.project.name} · schema v${AppState.objectModel.project.schemaVersion}`
@@ -537,11 +699,19 @@ function renderSlideList() {
   container.innerHTML = '';
   const project = AppState.objectModel.project;
   if (!project) return;
+  const isEdit = AppState.ui.mode === 'edit';
 
   project.slides.forEach((slide, i) => {
     const div = document.createElement('div');
     div.className = 'slide-thumb' + (slide.id === AppState.ui.activeSlideId ? ' active' : '');
-    div.innerHTML = `<span class="num">${i + 1}</span><div class="slide-thumb-inner"></div>`;
+    div.innerHTML = `
+      <span class="num">${i + 1}</span>
+      <div class="slide-thumb-inner"></div>
+      <div class="thumb-actions">
+        <button class="thumb-btn" data-action="duplicate" title="Slaydni nusxalash">⧉</button>
+        <button class="thumb-btn" data-action="delete" title="Slaydni o'chirish" ${project.slides.length <= 1 ? 'disabled' : ''}>🗑</button>
+      </div>
+    `;
     const inner = div.querySelector('.slide-thumb-inner');
     slide.elements.forEach(el => {
       const mini = document.createElement('div');
@@ -552,13 +722,80 @@ function renderSlideList() {
       mini.style.height = Math.max(4, el.height / 540 * 100) + '%';
       inner.appendChild(mini);
     });
+
     div.addEventListener('click', () => {
       AppState.ui.activeSlideId = slide.id;
-      AppState.ui.selectedElementId = null;
+      clearSelection();
       render();
     });
+
+    div.querySelector('[data-action="duplicate"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      dispatch({ type: 'DUPLICATE_SLIDE', payload: { slideId: slide.id } });
+    });
+    div.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasActive = AppState.ui.activeSlideId === slide.id;
+      dispatch({ type: 'DELETE_SLIDE', payload: { slideId: slide.id } });
+      if (wasActive) {
+        const proj = AppState.objectModel.project;
+        if (proj && proj.slides.length > 0) {
+          AppState.ui.activeSlideId = proj.slides[0].id;
+          clearSelection();
+          render();
+        }
+      }
+    });
+
+    // ---- Slaydlarni sudrab tartiblash (Reorder via drag-and-drop) ----
+    if (isEdit) {
+      div.draggable = true;
+      div.addEventListener('dragstart', (e) => {
+        AppState.ui.draggingSlideId = slide.id;
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      div.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        div.classList.add('drag-over');
+      });
+      div.addEventListener('dragleave', () => div.classList.remove('drag-over'));
+      div.addEventListener('drop', (e) => {
+        e.preventDefault();
+        div.classList.remove('drag-over');
+        const draggedId = AppState.ui.draggingSlideId;
+        AppState.ui.draggingSlideId = null;
+        if (!draggedId || draggedId === slide.id) return;
+        const ids = project.slides.map(s => s.id);
+        const fromIdx = ids.indexOf(draggedId);
+        const toIdx = ids.indexOf(slide.id);
+        if (fromIdx === -1 || toIdx === -1) return;
+        ids.splice(fromIdx, 1);
+        ids.splice(toIdx, 0, draggedId);
+        dispatch({ type: 'REORDER_SLIDES', payload: { orderedSlideIds: ids } });
+      });
+    }
+
     container.appendChild(div);
   });
+}
+
+function renderShapeSVG(el) {
+  const w = el.width, h = el.height;
+  const fill = el.fill || '#37d99b';
+  const stroke = el.stroke || '#1f8a63';
+  if (el.shapeType === 'rectangle') {
+    return `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="1.5" y="1.5" width="${w-3}" height="${h-3}" fill="${fill}" stroke="${stroke}" stroke-width="2"/></svg>`;
+  }
+  if (el.shapeType === 'roundedRectangle') {
+    return `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="1.5" y="1.5" width="${w-3}" height="${h-3}" rx="14" ry="14" fill="${fill}" stroke="${stroke}" stroke-width="2"/></svg>`;
+  }
+  if (el.shapeType === 'circle') {
+    return `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><ellipse cx="${w/2}" cy="${h/2}" rx="${w/2-2}" ry="${h/2-2}" fill="${fill}" stroke="${stroke}" stroke-width="2"/></svg>`;
+  }
+  if (el.shapeType === 'line') {
+    return `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><line x1="2" y1="${h/2}" x2="${w-2}" y2="${h/2}" stroke="${stroke}" stroke-width="${Math.max(3, h - 2)}" stroke-linecap="round"/></svg>`;
+  }
+  return '';
 }
 
 function renderElementContent(el) {
@@ -573,14 +810,27 @@ function renderElementContent(el) {
 
   if (el.type === 'text') {
     wrap.textContent = el.text;
+  } else if (el.type === 'shape') {
+    wrap.innerHTML = renderShapeSVG(el);
   } else if (el.type === 'image') {
-    if (el.src) {
+    if (el.assetId) {
+      // Yuklangan rasm — AssetStorage'da, Object Model faqat assetId'ni saqlaydi.
+      const cached = AssetCache.get(el.assetId);
+      if (cached) {
+        const img = document.createElement('img');
+        img.src = cached;
+        wrap.appendChild(img);
+      } else {
+        wrap.innerHTML = '<div class="img-broken">Yuklanmoqda…</div>';
+        ensureAssetLoaded(el.assetId).then(data => { if (data) render(); });
+      }
+    } else if (el.src) {
       const img = document.createElement('img');
       img.src = el.src;
       img.onerror = () => { wrap.innerHTML = '<div class="img-broken">Rasm yuklanmadi</div>'; };
       wrap.appendChild(img);
     } else {
-      wrap.innerHTML = '<div class="img-broken">URL berilmagan</div>';
+      wrap.innerHTML = '<div class="img-broken">Rasm mavjud emas</div>';
     }
   }
   return wrap;
@@ -599,41 +849,43 @@ function renderStage() {
 
   const isPreview = AppState.ui.mode === 'preview';
 
+  // ---- Pass 1: Content qatlami (Editor'da ham, Preview'da ham bir xil) ----
   slide.elements.forEach(el => {
     const node = renderElementContent(el);
-
     if (!isPreview) {
-      // ---- EDITOR RENDERER: Content + Overlay ----
       node.addEventListener('mousedown', (e) => startDrag(e, slide.id, el));
       if (el.type === 'text') {
         node.addEventListener('dblclick', (e) => enterTextEditMode(e, slide.id, el, node));
       }
-      stage.appendChild(node);
+    }
+    stage.appendChild(node);
+  });
 
-      if (AppState.ui.selectedElementId === el.id) {
-        const overlay = document.createElement('div');
-        overlay.className = 'overlay-box';
-        overlay.style.left = el.x + 'px';
-        overlay.style.top = el.y + 'px';
-        overlay.style.width = el.width + 'px';
-        overlay.style.height = el.height + 'px';
+  // ---- Pass 2: Overlay qatlami (faqat Editor Renderer'da, faqat tanlangan elementlar) ----
+  if (!isPreview) {
+    AppState.ui.selectedElementIds.forEach(id => {
+      const el = slide.elements.find(e => e.id === id);
+      if (!el) return;
+      const overlay = document.createElement('div');
+      overlay.className = 'overlay-box';
+      overlay.dataset.id = el.id;
+      overlay.style.left = el.x + 'px';
+      overlay.style.top = el.y + 'px';
+      overlay.style.width = el.width + 'px';
+      overlay.style.height = el.height + 'px';
+      if (AppState.ui.selectedElementIds.size === 1) {
         const handle = document.createElement('div');
         handle.className = 'handle';
         handle.style.pointerEvents = 'all';
         handle.addEventListener('mousedown', (e) => startResize(e, slide.id, el));
         overlay.appendChild(handle);
-        stage.appendChild(overlay);
       }
-    } else {
-      // ---- RUNTIME/PREVIEW RENDERER: faqat Content ----
-      stage.appendChild(node);
-    }
-  });
+      stage.appendChild(overlay);
+    });
 
-  if (!isPreview) {
     stage.addEventListener('mousedown', (e) => {
       if (e.target === stage) {
-        AppState.ui.selectedElementId = null;
+        clearSelection();
         render();
       }
     }, { once: true });
@@ -653,40 +905,68 @@ function renderCommandLog() {
   });
 }
 
-/* ---------- Drag to move (Overlay o'qiydi, natijada Command yuboradi) ---------- */
+/* ---------- Drag to move (Overlay o'qiydi, natijada Command yuboradi) ----------
+   Shift+Click — faqat tanlovni almashtiradi (drag boshlamaydi).
+   Oddiy Click — agar element hozir ko'p-tanlovning bir qismi bo'lsa, butun
+   tanlov birga suriladi; aks holda tanlov shu elementga qisqaradi. */
 function startDrag(e, slideId, el) {
   if (AppState.ui.mode === 'preview') return;
   e.stopPropagation();
-  AppState.ui.selectedElementId = el.id;
-  render();
 
-  const stageRect = document.getElementById('stage').getBoundingClientRect();
+  if (e.shiftKey) {
+    toggleSelect(el.id);
+    render();
+    return;
+  }
+
+  if (!AppState.ui.selectedElementIds.has(el.id)) {
+    selectOnly(el.id);
+    render();
+  }
+
+  const slide = AppState.objectModel.project.slides.find(s => s.id === slideId);
+  const selectedIds = Array.from(AppState.ui.selectedElementIds);
+  const origins = {};
+  selectedIds.forEach(id => {
+    const e2 = slide.elements.find(x => x.id === id);
+    if (e2) origins[id] = { x: e2.x, y: e2.y, width: e2.width, height: e2.height };
+  });
+
   const startX = e.clientX, startY = e.clientY;
-  const originX = el.x, originY = el.y;
   let moved = false;
 
   function onMove(ev) {
     const dx = ev.clientX - startX, dy = ev.clientY - startY;
     if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
-    const node = document.querySelector(`.el[data-id="${el.id}"]`);
-    if (node) {
-      node.style.left = clamp(originX + dx, 0, 960 - el.width) + 'px';
-      node.style.top = clamp(originY + dy, 0, 540 - el.height) + 'px';
-    }
+    selectedIds.forEach(id => {
+      const o = origins[id];
+      if (!o) return;
+      const nx = clamp(o.x + dx, 0, 960 - o.width);
+      const ny = clamp(o.y + dy, 0, 540 - o.height);
+      const node = document.querySelector(`.el[data-id="${id}"]`);
+      const overlay = document.querySelector(`.overlay-box[data-id="${id}"]`);
+      if (node) { node.style.left = nx + 'px'; node.style.top = ny + 'px'; }
+      if (overlay) { overlay.style.left = nx + 'px'; overlay.style.top = ny + 'px'; }
+    });
   }
   function onUp(ev) {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
     if (!moved) return;
     const dx = ev.clientX - startX, dy = ev.clientY - startY;
-    dispatch({
-      type: 'MOVE_ELEMENT',
-      payload: {
-        slideId, elementId: el.id,
-        x: clamp(originX + dx, 0, 960 - el.width),
-        y: clamp(originY + dy, 0, 540 - el.height)
-      }
+    const moves = selectedIds.filter(id => origins[id]).map(id => {
+      const o = origins[id];
+      return {
+        elementId: id,
+        x: clamp(o.x + dx, 0, 960 - o.width),
+        y: clamp(o.y + dy, 0, 540 - o.height)
+      };
     });
+    if (moves.length === 1) {
+      dispatch({ type: 'MOVE_ELEMENT', payload: { slideId, elementId: moves[0].elementId, x: moves[0].x, y: moves[0].y } });
+    } else {
+      dispatch({ type: 'MOVE_ELEMENTS', payload: { slideId, moves } });
+    }
   }
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
@@ -700,7 +980,7 @@ function startResize(e, slideId, el) {
   function onMove(ev) {
     const dx = ev.clientX - startX, dy = ev.clientY - startY;
     const node = document.querySelector(`.el[data-id="${el.id}"]`);
-    const overlay = document.querySelector('.overlay-box');
+    const overlay = document.querySelector(`.overlay-box[data-id="${el.id}"]`);
     const w = Math.max(24, originW + dx), h = Math.max(24, originH + dy);
     if (node) { node.style.width = w + 'px'; node.style.height = h + 'px'; }
     if (overlay) { overlay.style.width = w + 'px'; overlay.style.height = h + 'px'; }
@@ -855,6 +1135,62 @@ function storageBackendLabel(type) {
   return 'Vaqtinchalik xotira (non-persistent)';
 }
 
+/* ---------- Asset Cache (State Management Bo'lim 8: Cache State) ----------
+   Yuklangan rasm dataURL'lari xotirada, faqat tezlik uchun ushlab turiladi.
+   Bu HECH QACHON haqiqat manbai emas — asl nusxa AssetStorage'da; agar
+   kesh tozalansa (masalan, sahifa yangilansa), shu yerdan qayta o'qiladi. */
+const AssetCache = new Map(); // assetId -> dataURL
+
+async function ensureAssetLoaded(assetId) {
+  if (AssetCache.has(assetId)) return AssetCache.get(assetId);
+  try {
+    const raw = await AssetStorage.get(assetId);
+    if (raw) AssetCache.set(assetId, raw);
+    return raw;
+  } catch (_) {
+    return null;
+  }
+}
+
+/* ---------- Autosave (Command/Event Bo'lim 23: debounced, Domain Event asosida) ----------
+   Soddalashtirish: haqiqiy Event Bus o'rniga, har bir muvaffaqiyatli
+   dispatch/undo/redo so'ngida to'g'ridan-to'g'ri chaqiriladi — lekin
+   mantiqiy jihatdan bu ham xuddi Command/Event hujjatidagi kabi
+   "debounce + Object Model o'zgarishiga obuna" naqshiga amal qiladi. */
+let autosaveTimer = null;
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(autosaveProject, 1500);
+}
+
+async function autosaveProject() {
+  const project = AppState.objectModel.project;
+  if (!project) return;
+  try {
+    await ProjectStorage.set('current', JSON.stringify(project));
+    await ProjectStorage.set('lastSlideId', AppState.ui.activeSlideId);
+    updateAutosaveIndicator(true);
+  } catch (err) {
+    console.error(err);
+    updateAutosaveIndicator(false);
+  }
+}
+
+function updateAutosaveIndicator(success) {
+  const el = document.getElementById('autosave-indicator');
+  if (!el) return;
+  const time = new Date().toLocaleTimeString('uz-UZ');
+  if (!success) {
+    el.textContent = `⚠ avtosaqlash xatosi (${time})`;
+    el.style.color = 'var(--danger)';
+    return;
+  }
+  el.style.color = 'var(--text-dim)';
+  el.textContent = ProjectStorage.isPersistent
+    ? `avtosaqlangan ${time}`
+    : `vaqtinchalik avtosaqlangan ${time}`;
+}
+
 async function saveProject() {
   const project = AppState.objectModel.project;
   if (!project) return;
@@ -884,7 +1220,8 @@ async function reloadProject() {
     const lastSlideId = await ProjectStorage.get('lastSlideId');
 
     AppState.ui.activeSlideId = project.slides.find(s => s.id === lastSlideId) ? lastSlideId : project.slides[0].id;
-    AppState.ui.selectedElementId = null;
+    AppState.ui.selectedElementIds = new Set();
+    AppState.ui.clipboard = [];
     AppState.ui.mode = 'edit';
     AppState.history = { stack: [project], pointer: 0 };
     AppState.commandLog = [{ type: 'PROJECT_RELOADED', ts: new Date().toLocaleTimeString('uz-UZ'), error: false, undone: false }];
@@ -954,7 +1291,8 @@ function dispatchBootstrap(command) {
   const project = CommandHandlers.CREATE_PROJECT(null, command.payload);
   AppState.objectModel.project = project;
   AppState.ui.activeSlideId = project.slides[0].id;
-  AppState.ui.selectedElementId = null;
+  AppState.ui.selectedElementIds = new Set();
+  AppState.ui.clipboard = [];
   AppState.ui.mode = 'edit';
   AppState.history = { stack: [project], pointer: 0 };
   render();
@@ -976,28 +1314,130 @@ document.getElementById('btn-add-text').addEventListener('click', () => {
 document.getElementById('btn-add-image').addEventListener('click', () => {
   const slide = getActiveSlide();
   if (!slide) return;
-  showModal({
-    title: 'Rasm qo\'shish',
-    placeholder: 'Rasm URL manzili (https://...)',
-    onSubmit: (src) => {
-      dispatch({ type: 'ADD_IMAGE_ELEMENT', payload: { slideId: slide.id, x: 300, y: 180, src } });
-    }
-  });
+  document.getElementById('file-image-input').click();
 });
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('file-image-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // xuddi shu faylni keyinroq qayta tanlash imkoni uchun
+  if (!file) return;
+  const slide = getActiveSlide();
+  if (!slide) return;
+
+  if (file.size > 3 * 1024 * 1024) {
+    toast('⚠ Rasm 3MB dan katta — brauzer xotirasiga saqlanmasligi mumkin');
+  }
+
+  try {
+    const dataUrl = await readFileAsDataURL(file);
+    const assetId = uuid();
+    await AssetStorage.set(assetId, dataUrl);   // AssetStorage — Project JSON'dan alohida namespace
+    AssetCache.set(assetId, dataUrl);            // darhol keshga, birinchi render'da "Yuklanmoqda" ko'rinmasin
+    dispatch({ type: 'ADD_IMAGE_ELEMENT', payload: { slideId: slide.id, x: 300, y: 180, assetId } });
+  } catch (err) {
+    console.error(err);
+    toast('Rasmni o\'qishda xato yuz berdi');
+  }
+});
+
+// ---- Shakl dropdown ----
+document.getElementById('shape-menu').innerHTML = `
+  <button data-shape="rectangle">▭ To'g'ri burchakli</button>
+  <button data-shape="roundedRectangle">▢ Yumaloq burchakli</button>
+  <button data-shape="circle">● Doira</button>
+  <button data-shape="line">— Chiziq</button>
+`;
+document.getElementById('btn-add-shape').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('shape-menu').classList.toggle('open');
+});
+document.getElementById('shape-menu').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-shape]');
+  if (!btn) return;
+  const slide = getActiveSlide();
+  if (!slide) return;
+  dispatch({ type: 'ADD_SHAPE_ELEMENT', payload: { slideId: slide.id, shapeType: btn.dataset.shape, x: 360, y: 220 } });
+  document.getElementById('shape-menu').classList.remove('open');
+});
+document.addEventListener('click', () => {
+  document.getElementById('shape-menu').classList.remove('open');
+});
+
+// ---- Delete / Duplicate / Copy / Paste ----
+function deleteSelection() {
+  const slide = getActiveSlide();
+  if (!slide) return;
+  const ids = Array.from(AppState.ui.selectedElementIds);
+  if (ids.length === 0) return;
+  if (ids.length === 1) {
+    dispatch({ type: 'DELETE_ELEMENT', payload: { slideId: slide.id, elementId: ids[0] } });
+  } else {
+    dispatch({ type: 'DELETE_ELEMENTS', payload: { slideId: slide.id, elementIds: ids } });
+  }
+  clearSelection();
+  render();
+}
+
+function duplicateSelection() {
+  const slide = getActiveSlide();
+  if (!slide) return;
+  const ids = Array.from(AppState.ui.selectedElementIds);
+  if (ids.length !== 1) { toast('Duplicate — faqat bitta element uchun (ko\'p element uchun Copy+Paste ishlating)'); return; }
+  dispatch({ type: 'DUPLICATE_ELEMENT', payload: { slideId: slide.id, elementId: ids[0] } });
+}
+
+function copySelection() {
+  const slide = getActiveSlide();
+  if (!slide) return;
+  const ids = Array.from(AppState.ui.selectedElementIds);
+  if (ids.length === 0) return;
+  // Clipboard — UI-local, ephemeral holat; Object Model'ga hech qanday aloqasi yo'q va persistlanmaydi.
+  AppState.ui.clipboard = ids.map(id => slide.elements.find(el => el.id === id)).filter(Boolean).map(el => ({ ...el }));
+  toast(`${ids.length} ta element nusxalandi`);
+}
+
+function pasteClipboard() {
+  const slide = getActiveSlide();
+  if (!slide || AppState.ui.clipboard.length === 0) return;
+  dispatch({ type: 'PASTE_ELEMENTS', payload: { slideId: slide.id, elements: AppState.ui.clipboard } });
+}
+
+document.getElementById('btn-delete').addEventListener('click', deleteSelection);
+document.getElementById('btn-duplicate').addEventListener('click', duplicateSelection);
+document.getElementById('btn-copy').addEventListener('click', copySelection);
+document.getElementById('btn-paste').addEventListener('click', pasteClipboard);
 
 document.getElementById('btn-undo').addEventListener('click', undo);
 document.getElementById('btn-redo').addEventListener('click', redo);
 
 document.getElementById('mode-edit').addEventListener('click', () => {
-  AppState.ui.mode = 'edit'; AppState.ui.selectedElementId = null; render();
+  AppState.ui.mode = 'edit'; clearSelection(); render();
 });
 document.getElementById('mode-preview').addEventListener('click', () => {
-  AppState.ui.mode = 'preview'; AppState.ui.selectedElementId = null; render();
+  AppState.ui.mode = 'preview'; clearSelection(); render();
 });
 
 document.addEventListener('keydown', (e) => {
+  const active = document.activeElement;
+  const isEditingText = (active && active.isContentEditable) || (active && active.tagName === 'INPUT');
+  if (isEditingText) return; // native matn tahrirlashiga xalaqit bermaslik
+
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
   if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
+  if (AppState.ui.mode !== 'edit') return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); }
 });
 
 /* =========================================================================
