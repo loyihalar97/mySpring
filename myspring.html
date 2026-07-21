@@ -233,6 +233,10 @@
     padding: 8px 10px; border: 1px dashed var(--danger); border-radius: 6px;
     color: #c23a4d; font-size: 11.5px; background: #fdeef0; margin-top: 8px;
   }
+  .quiz-warning-banner {
+    padding: 6px 10px; border: 1px dashed #d9a441; border-radius: 6px;
+    color: #8a6116; font-size: 11px; background: #fdf6e8; margin-top: 8px;
+  }
 
   .el-fallback {
     background: #3a1418; border: 1.5px dashed var(--danger);
@@ -502,26 +506,73 @@ function createQuizElement(questionType, x, y, zIndex) {
   };
 }
 
-// Element'ni yangi ID bilan klonlash (Duplicate/Paste uchun umumiy).
+/* =========================================================================
+   ELEMENT CLONE IDENTITY POLICY REGISTRY
+   ---------------------------------------------------------------------
+   Immutability faqat tasodifiy mutatsiyadan himoya qiladi — u duplikat
+   ID'larni "xavfsiz" qilmaydi. Har bir Element turi ixtiyoriy ravishda
+   o'zining ICHKI (nested) identifikatorlarini (masalan, Quiz'ning
+   answers[].id) qanday qayta generatsiya qilishni shu yerda, MARKAZLASHGAN
+   holda e'lon qiladi — bu Rendering Engine'dagi Element Renderer
+   Registry (Bo'lim 13) bilan bir xil naqsh.
+
+   Bu orqali generic Command'lar (DUPLICATE_ELEMENT, PASTE_ELEMENTS,
+   DUPLICATE_SLIDE) HECH QACHON "agar type === 'quiz'" kabi maxsus
+   shoxobchalarga muhtoj bo'lmaydi — ular faqat cloneElementWithNewId()ni
+   chaqiradi, qolganini registry o'zi hal qiladi.
+
+   Har bir policy funksiyasi (el, idMap) -> yangilangan el qaytaradi va
+   har bir eski->yangi ID juftligini idMap'ga yozadi. idMap chaqiruvchiga
+   qaytariladi — kelajakda elementDAN TASHQARIDAGI (masalan, boshqa
+   elementdagi Trigger'ning "shu Quiz javobiga ishora qilish") nested
+   referencelarni ham xuddi shu mexanizm orqali qayta xaritalash mumkin
+   bo'ladi.
+   ========================================================================= */
+const ElementCloneIdentityPolicies = {
+  quiz: (el, idMap) => {
+    const newAnswers = el.answers.map(a => {
+      const newAnswerId = uuid();
+      idMap.set(a.id, newAnswerId);
+      return { ...a, id: newAnswerId };
+    });
+    return { ...el, answers: newAnswers };
+  },
+  // Boshqa turlar (text, image, shape) — nested identity'ga ega emas,
+  // shuning uchun registry'da yo'q; standart siyosat (faqat tashqi ID)
+  // avtomatik qo'llaniladi.
+};
+
+// Element'ni yangi ID bilan (va, agar policy mavjud bo'lsa, barcha ICHKI
+// ID'lar bilan ham) klonlash — Duplicate/Paste/Slide-Duplicate uchun umumiy.
 // zIndex bu yerda BERILMAYDI — chaqiruvchi Command handler o'zi
 // nextZIndex(slide) orqali eng yuqori qatlamga qo'yadi.
 function cloneElementWithNewId(el, offsetX = 16, offsetY = 16) {
-  return {
-    ...el,
-    id: uuid(),
+  const idMap = new Map(); // eski ID -> yangi ID (elementning o'zi va barcha nested ID'lari)
+
+  const policy = ElementCloneIdentityPolicies[el.type];
+  const withRegeneratedNestedIds = policy ? policy(el, idMap) : el;
+
+  const newElementId = uuid();
+  idMap.set(el.id, newElementId);
+
+  const element = {
+    ...withRegeneratedNestedIds,
+    id: newElementId,
     x: el.x + offsetX,
     y: el.y + offsetY,
     metadata: { ...el.metadata, createdAt: Date.now() }
   };
+
+  return { element, idMap };
 }
 
-// Slaydni klonlash — barcha ichidagi Element'lar ham yangi ID oladi,
-// aks holda ikkita slaydda bir xil elementId qoldirib, Command Layer
-// bog'lanishlarini (referential integrity) buzib qo'yardi.
+// Slaydni klonlash — barcha ichidagi Element'lar ham yangi ID oladi
+// (endi cloneElementWithNewId orqali, shuning uchun ICHKI ID'lar — masalan
+// Quiz javoblari — ham to'g'ri regenerate qilinadi, offset 0).
 function cloneSlideWithNewIds(slide) {
   return {
     id: uuid(),
-    elements: slide.elements.map(el => ({ ...el, id: uuid(), metadata: { ...el.metadata } }))
+    elements: slide.elements.map(el => cloneElementWithNewId(el, 0, 0).element)
   };
 }
 
@@ -662,7 +713,7 @@ const CommandHandlers = {
   })),
 
   // Diqqat: bu yerda "kamida 2 ta javob" qoidasi ATAYLAB tekshirilmaydi —
-  // bu Validation Layer (validatePostState/validateQuizElement)ning
+  // bu Validation Layer (validatePostState/validateQuizStructural)ning
   // vazifasi, Command Handler emas (tuzatish #3 talabi).
   REMOVE_QUIZ_ANSWER: (project, { slideId, elementId, answerId }) => mutateElement(project, slideId, elementId, el => ({
     ...el, answers: el.answers.filter(a => a.id !== answerId)
@@ -679,15 +730,18 @@ const CommandHandlers = {
     ...el, answers: el.answers.map(a => a.id === answerId ? { ...a, text } : a)
   })),
 
-  // single turida "correct:false" yuborish orqali YAGONA to'g'ri javobni
-  // o'chirib bo'lmaydi (bu holatda Command e'tiborga olinmaydi) — muallif
-  // faqat boshqa variantni tanlash orqali almashtira oladi. Bu Handler
-  // darajasidagi himoya; Validation Layer bu qoidani BOSHQA yo'llar bilan
-  // (masalan REMOVE_QUIZ_ANSWER orqali) buzilishidan ham himoya qiladi.
+  // single turida: "correct:true" — boshqa barcha javoblarni avtomatik
+  // false qiladi (>1 to'g'ri javob STRUKTURAVIY jihatdan imkonsiz, bu
+  // invariant konstruksiya orqali kafolatlanadi). "correct:false" — YAGONA
+  // to'g'ri javobni ham vaqtincha o'chirishga RUXSAT BERILADI (masalan,
+  // muallif javobni o'chirmoqchi bo'lganda) — natijada "0 to'g'ri javob"
+  // holati endi faqat Authoring Warning, Command rad etilmaydi (tuzatish #2).
   SET_QUIZ_ANSWER_CORRECT: (project, { slideId, elementId, answerId, correct }) => mutateElement(project, slideId, elementId, el => {
     if (el.questionType === 'single') {
-      if (!correct) return el;
-      return { ...el, answers: el.answers.map(a => ({ ...a, correct: a.id === answerId })) };
+      if (correct) {
+        return { ...el, answers: el.answers.map(a => ({ ...a, correct: a.id === answerId })) };
+      }
+      return { ...el, answers: el.answers.map(a => a.id === answerId ? { ...a, correct: false } : a) };
     }
     return { ...el, answers: el.answers.map(a => a.id === answerId ? { ...a, correct } : a) };
   }),
@@ -735,13 +789,17 @@ const CommandHandlers = {
   DUPLICATE_ELEMENT: (project, { slideId, elementId }) => mutateSlide(project, slideId, slide => {
     const original = slide.elements.find(el => el.id === elementId);
     if (!original) return slide;
-    const clone = { ...cloneElementWithNewId(original), zIndex: nextZIndex(slide) };
+    const { element } = cloneElementWithNewId(original); // ichki ID'lar (masalan Quiz javoblari) ham avtomatik regenerate qilinadi
+    const clone = { ...element, zIndex: nextZIndex(slide) };
     return { ...slide, elements: [...slide.elements, clone] };
   }),
 
   PASTE_ELEMENTS: (project, { slideId, elements }) => mutateSlide(project, slideId, slide => {
     let z = nextZIndex(slide);
-    const cloned = elements.map(el => ({ ...cloneElementWithNewId(el, 20, 20), zIndex: z++ }));
+    const cloned = elements.map(el => {
+      const { element } = cloneElementWithNewId(el, 20, 20);
+      return { ...element, zIndex: z++ };
+    });
     return { ...slide, elements: [...slide.elements, ...cloned] };
   }),
 };
@@ -777,51 +835,97 @@ function validateCommand(project, command) {
 }
 
 /* =========================================================================
-   VALIDATION LAYER — Semantic Validation (tuzatish #3)
-   Bu qatlam Command Handler'lardan MUSTAQIL — hatto agar kelajakda kimdir
-   yangi Command yozib, quiz strukturasini boshqacha yo'l bilan o'zgartirsa
-   ham, bu qoidalar baribir kuchda qoladi (post-simulation dry-run, Command
-   & Event Architecture Bo'lim 5 tamoyiliga mos).
+   VALIDATION LAYER — Uch bosqichli tizim (tuzatish #2)
+   Bu qatlam Command Handler'lardan MUSTAQIL. Uchta aniq daraja bor,
+   ularni aralashtirib yuborish — eng keng tarqalgan authoring-tool
+   validatsiya xatosi (har bir kichik tahrirni "publish-ready" talab
+   qilish, foydalanuvchini qadam-baqadam tahrirlashga xalaqit beradi).
+
+   1) STRUCTURAL — har bir Command'dan keyin MAJBURIY (Object Model hech
+      qachon buzilishi mumkin bo'lmagan holatga tushmasligi kerak).
+   2) AUTHORING WARNINGS — Draft hali "tugallanmagan", lekin tahrirlash
+      davom etishi kerak (Command rad etilmaydi).
+   3) PREVIEW/PUBLISH BLOCKING — faqat Preview'ga (kelajakda Publish'ga)
+      kirishdan OLDIN tekshiriladi, alohida, aniq xatolar ro'yxati bilan.
    ========================================================================= */
-function validateQuizElement(el) {
+
+// ---- 1) STRUCTURAL (har bir Command'dan keyin) ----
+function validateQuizStructural(el) {
   const errors = [];
   if (!el || el.type !== 'quiz') return errors;
-  const ids = el.answers.map(a => a.id);
-  if (new Set(ids).size !== ids.length) errors.push("Javob ID'lari takrorlanmoqda");
-  if (el.answers.length < 2) errors.push('Kamida 2 ta javob varianti kerak');
-  const correctCount = el.answers.filter(a => a.correct).length;
-  if (el.questionType === 'single' && correctCount !== 1) {
-    errors.push("Single Choice uchun aynan bitta to'g'ri javob bo'lishi kerak");
+  if (typeof el.questionText !== 'string') errors.push("questionText maydoni yo'q");
+  if (!Array.isArray(el.answers)) errors.push("answers maydoni yo'q");
+  if (!el.feedback || typeof el.feedback.correctText !== 'string' || typeof el.feedback.incorrectText !== 'string') {
+    errors.push("feedback maydoni to'liq emas");
   }
-  if (el.questionType === 'multiple' && correctCount < 1) {
-    errors.push("Multiple Choice uchun kamida bitta to'g'ri javob bo'lishi kerak");
+  if (Array.isArray(el.answers)) {
+    const ids = el.answers.map(a => a.id);
+    if (new Set(ids).size !== ids.length) errors.push("Javob ID'lari takrorlanmoqda");
+    const correctCount = el.answers.filter(a => a.correct).length;
+    if (el.questionType === 'single' && correctCount > 1) {
+      errors.push("Single Choice birdan ortiq to'g'ri javobga ega bo'la olmaydi");
+    }
   }
   return errors;
 }
 
-function isQuizStructurallyValid(el) {
-  return validateQuizElement(el).length === 0;
+// ---- 2) AUTHORING WARNINGS (Draft hali tahrirlanadigan holatda) ----
+function getQuizAuthoringWarnings(el) {
+  const warnings = [];
+  if (!el || el.type !== 'quiz') return warnings;
+  if (el.answers.length < 2) warnings.push('Kamida 2 ta javob varianti kerak bo\'ladi');
+  const correctCount = el.answers.filter(a => a.correct).length;
+  if (correctCount === 0) {
+    warnings.push(el.questionType === 'single'
+      ? "Hali to'g'ri javob tanlanmagan (Single Choice)"
+      : "Hali to'g'ri javob belgilanmagan (Multiple Choice)");
+  }
+  return warnings;
+}
+
+// ---- 3) PREVIEW/PUBLISH BLOCKING (faqat kirishdan oldin) ----
+function validateQuizForPreview(el) {
+  const errors = [];
+  if (!el || el.type !== 'quiz') return errors;
+  if (el.answers.length < 2) errors.push('Kamida 2 ta javob varianti kerak');
+  if (!el.questionText || !el.questionText.trim()) errors.push("Savol matni bo'sh bo'lishi mumkin emas");
+  el.answers.forEach((a, i) => {
+    if (!a.text || !a.text.trim()) errors.push(`${i + 1}-javob matni bo'sh`);
+  });
+  const ids = el.answers.map(a => a.id);
+  if (new Set(ids).size !== ids.length) errors.push("Javob ID'lari takrorlanmoqda");
+  const correctCount = el.answers.filter(a => a.correct).length;
+  if (el.questionType === 'single' && correctCount !== 1) {
+    errors.push("Single Choice uchun aynan bitta to'g'ri javob kerak");
+  }
+  if (el.questionType === 'multiple' && correctCount < 1) {
+    errors.push("Multiple Choice uchun kamida bitta to'g'ri javob kerak");
+  }
+  return errors;
+}
+
+function isQuizReadyForPreview(el) {
+  return validateQuizForPreview(el).length === 0;
 }
 
 // Qaysi Command turlari quiz strukturaviy yaxlitligiga ta'sir qilishi
-// mumkin — shundagina qimmat post-simulation tekshiruvi ishga tushadi.
+// mumkin — shundagina Tier-1 post-simulation tekshiruvi ishga tushadi.
 const QUIZ_MUTATING_COMMANDS = new Set([
   'ADD_QUIZ_ANSWER', 'REMOVE_QUIZ_ANSWER', 'REORDER_QUIZ_ANSWERS',
   'SET_QUIZ_ANSWER_TEXT', 'SET_QUIZ_ANSWER_CORRECT',
   'SET_QUIZ_QUESTION_TEXT', 'SET_QUIZ_CORRECT_FEEDBACK', 'SET_QUIZ_INCORRECT_FEEDBACK',
 ]);
 
-// Post-simulation (dry-run) tekshiruvi: Command Handler ALLAQACHON
-// bajarilgan (yangi project hisoblangan), lekin bu natija hali
-// AppState'ga yozilmagan. Agar natija noto'g'ri bo'lsa — dispatch() bu
-// yangi holatni butunlay rad etadi, Object Model o'zgarishsiz qoladi.
+// Post-simulation (dry-run) tekshiruvi — FAQAT Tier-1 (Structural).
+// Tier-2 (Warnings) ataylab bu yerda TEKSHIRILMAYDI — Draft "tugallanmagan"
+// holatda qolishi va tahrirlash davom etishi kerak.
 function validatePostState(project, command) {
   if (!QUIZ_MUTATING_COMMANDS.has(command.type)) return null;
   const { slideId, elementId } = command.payload || {};
   const slide = project.slides.find(s => s.id === slideId);
   const el = slide && slide.elements.find(e => e.id === elementId);
   if (!el || el.type !== 'quiz') return null;
-  const errors = validateQuizElement(el);
+  const errors = validateQuizStructural(el);
   return errors.length > 0 ? errors[0] : null;
 }
 
@@ -904,8 +1008,11 @@ function submitQuizAnswer(el) {
   const rt = getQuizRuntimeState(el.id);
   if (rt.submitted) return;
 
-  // Tuzatish #6: strukturaviy noto'g'ri quiz Submit qilinmaydi.
-  if (!isQuizStructurallyValid(el)) {
+  // Tuzatish #6/2: Preview-blocking (Tier-3) tekshiruvi — bu yerga
+  // odatda umuman yetib kelmaydi, chunki Preview'ga kirishning o'zi
+  // allaqachon bloklangan bo'ladi (mode-preview handler); bu — ikkinchi
+  // himoya qatlami (defense in depth).
+  if (!isQuizReadyForPreview(el)) {
     toast("⚠ Bu savol tuzilishi noto'g'ri — Submit qilib bo'lmaydi.");
     return;
   }
@@ -1379,11 +1486,11 @@ function renderQuizAuthoringBody(el) {
     hint.textContent = 'Tahrirlash uchun ikki marta bosing';
     container.appendChild(hint);
 
-    const errors = validateQuizElement(el);
+    const errors = getQuizAuthoringWarnings(el);
     if (errors.length > 0) {
       const warn = document.createElement('div');
-      warn.className = 'quiz-invalid-banner';
-      warn.textContent = '⚠ ' + errors.join(' · ');
+      warn.className = 'quiz-warning-banner';
+      warn.textContent = 'ℹ ' + errors.join(' · ');
       container.appendChild(warn);
     }
     return container;
@@ -1452,8 +1559,7 @@ function renderQuizAuthoringBody(el) {
 
     const removeBtn = document.createElement('button');
     removeBtn.textContent = '✕';
-    removeBtn.title = el.answers.length <= 2 ? 'Kamida 2 ta javob qolishi kerak' : "O'chirish";
-    removeBtn.disabled = el.answers.length <= 2;
+    removeBtn.title = "O'chirish";
     removeBtn.addEventListener('click', () => {
       dispatch({ type: 'REMOVE_QUIZ_ANSWER', payload: { slideId, elementId: el.id, answerId: a.id } });
     });
@@ -1500,11 +1606,11 @@ function renderQuizAuthoringBody(el) {
   fbWrap.appendChild(incorrectLabel); fbWrap.appendChild(incorrectInput2);
   container.appendChild(fbWrap);
 
-  const errors = validateQuizElement(el);
+  const errors = getQuizAuthoringWarnings(el);
   if (errors.length > 0) {
     const warn = document.createElement('div');
-    warn.className = 'quiz-invalid-banner';
-    warn.textContent = '⚠ ' + errors.join(' · ');
+    warn.className = 'quiz-warning-banner';
+    warn.textContent = 'ℹ ' + errors.join(' · ');
     container.appendChild(warn);
   }
 
@@ -1520,12 +1626,13 @@ function renderQuizRuntimeBody(el) {
   q.textContent = el.questionText;
   container.appendChild(q);
 
-  // Tuzatish #6: strukturaviy noto'g'ri quiz — interaktiv qism umuman
-  // ko'rsatilmaydi, faqat aniq xabar.
-  if (!isQuizStructurallyValid(el)) {
+  // Ikkinchi himoya qatlami (defense in depth) — odatda bu yerga
+  // yetib kelmaydi, chunki Preview'ga kirishning o'zi (mode-preview
+  // handler) allaqachon bloklangan bo'lishi kerak edi.
+  if (!isQuizReadyForPreview(el)) {
     const warn = document.createElement('div');
     warn.className = 'quiz-invalid-banner';
-    warn.textContent = "⚠ Bu savol hozircha to'g'ri sozlanmagan: " + validateQuizElement(el).join(' · ') + ". Submit qilib bo'lmaydi.";
+    warn.textContent = "⚠ Bu savol hozircha to'g'ri sozlanmagan: " + validateQuizForPreview(el).join(' · ') + ". Submit qilib bo'lmaydi.";
     container.appendChild(warn);
     return container;
   }
@@ -2341,8 +2448,50 @@ document.getElementById('mode-edit').addEventListener('click', () => {
   AppState.ui.mode = 'edit'; clearSelection(); render();
 });
 document.getElementById('mode-preview').addEventListener('click', () => {
+  // Tuzatish #2 (Tier-3): Preview'ga kirishdan OLDIN joriy slayddagi barcha
+  // Quiz elementlarini tekshiramiz. Agar birortasi ham bloklovchi xatoga
+  // ega bo'lsa — Preview'ga UMUMAN kirilmaydi, aniq xatolar ro'yxati
+  // ko'rsatiladi (shunchaki Submit tugmasini o'chirib qo'yish emas).
+  const slide = getActiveSlide();
+  if (slide) {
+    const blockingIssues = [];
+    slide.elements.forEach(el => {
+      if (el.type !== 'quiz') return;
+      const errors = validateQuizForPreview(el);
+      if (errors.length > 0) {
+        blockingIssues.push({ questionText: el.questionText || '(savolsiz)', errors });
+      }
+    });
+    if (blockingIssues.length > 0) {
+      showPreviewBlockedModal(blockingIssues);
+      return; // Preview'ga o'tilmaydi
+    }
+  }
   AppState.ui.mode = 'preview'; clearSelection(); resetRuntimeState(); render();
 });
+
+function escapeHtmlText(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function showPreviewBlockedModal(issues) {
+  const backdrop = document.getElementById('modal-backdrop');
+  const modal = document.getElementById('modal');
+  const itemsHtml = issues.map(issue => {
+    const errs = issue.errors.map(e => `<li>${escapeHtmlText(e)}</li>`).join('');
+    return `<div style="margin-bottom:10px;"><b style="font-size:12px;">${escapeHtmlText(issue.questionText)}</b>
+      <ul style="margin:4px 0 0 16px; padding:0; font-size:11.5px; color:var(--danger);">${errs}</ul></div>`;
+  }).join('');
+  modal.innerHTML = `
+    <h3>⚠ Preview'ga o'tib bo'lmaydi</h3>
+    <div style="max-height:280px; overflow-y:auto; margin-bottom:14px;">${itemsHtml}</div>
+    <div class="row"><button id="modal-ok" class="primary">Tushunarli</button></div>
+  `;
+  backdrop.classList.add('open');
+  document.getElementById('modal-ok').onclick = () => backdrop.classList.remove('open');
+}
 
 document.addEventListener('keydown', (e) => {
   const active = document.activeElement;
