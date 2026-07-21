@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<title>mySpring Suite — MVP</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg-shell: #13151a;
+    --bg-panel: #1b1e26;
+    --bg-panel-2: #20242e;
+    --border: #2c3140;
+    --text-primary: #eef0f4;
+    --text-dim: #8b93a6;
+    --accent: #37d99b;
+    --accent-dim: #1f8a63;
+    --danger: #ef5a6f;
+    --stage-bg: #ffffff;
+    --overlay: #37d99b;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg-shell);
+    color: var(--text-primary);
+    overflow: hidden;
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  #storage-banner {
+    display: none;
+    align-items: center; gap: 8px;
+    padding: 7px 14px;
+    background: #3a2a12; color: #f5c15c;
+    border-bottom: 1px solid #6b4a1a;
+    font-size: 12px; font-weight: 500;
+    flex-shrink: 0;
+  }
+  #storage-banner.show { display: flex; }
+  #storage-banner .badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    background: #6b4a1a; color: #ffe4ad; padding: 2px 6px; border-radius: 4px;
+  }
+
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---------- TOP BAR ---------- */
+  #topbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; margin-right: 12px; }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+  }
+  .brand-name { font-weight: 700; font-size: 14px; letter-spacing: 0.2px; }
+  .brand-tag { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+
+  .divider { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+
+  button {
+    font-family: inherit; font-size: 12.5px; font-weight: 500;
+    background: var(--bg-panel-2); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 7px 11px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    transition: all .12s ease;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #06251a; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); color: #06251a; }
+  button.icon-only { padding: 7px 9px; }
+
+  #topbar .spacer { flex: 1; }
+
+  #mode-toggle { display: flex; background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+  #mode-toggle button { border: none; background: transparent; border-radius: 6px; }
+  #mode-toggle button.active { background: var(--accent); color: #06251a; font-weight: 600; }
+
+  /* ---------- BODY LAYOUT ---------- */
+  #body { flex: 1; display: flex; min-height: 0; }
+
+  #left-panel {
+    width: 190px; flex-shrink: 0;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 12px;
+    overflow-y: auto;
+  }
+  .panel-title {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-dim); font-weight: 600; margin-bottom: 10px;
+  }
+  .slide-thumb {
+    border: 1.5px solid var(--border); border-radius: 8px;
+    background: #2a2e39; height: 66px; margin-bottom: 8px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; position: relative; overflow: hidden;
+    font-size: 11px; color: var(--text-dim);
+  }
+  .slide-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .slide-thumb .num {
+    position: absolute; top: 4px; left: 6px; font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: var(--text-dim);
+  }
+  .slide-thumb-inner {
+    width: 90%; height: 76%; background: white; border-radius: 3px; position: relative;
+  }
+  .slide-thumb-inner .mini-el { position: absolute; background: #37d99b55; border: 1px solid #37d99b; border-radius: 1px; }
+
+  #center-panel {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(circle at 1px 1px, #262a35 1px, transparent 0) 0 0/22px 22px,
+      var(--bg-shell);
+    position: relative; overflow: auto;
+  }
+
+  #stage-wrap { position: relative; }
+  #stage {
+    width: 960px; height: 540px;
+    background: var(--stage-bg);
+    border-radius: 4px;
+    box-shadow: 0 20px 60px -20px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.04);
+    position: relative;
+    overflow: hidden;
+  }
+  #stage.preview-mode { cursor: default; }
+  #stage-label {
+    position: absolute; top: -22px; left: 0; font-size: 11px; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .el {
+    position: absolute;
+    display: flex; align-items: center;
+    user-select: none;
+  }
+  .el[data-type="text"] {
+    font-size: 18px; line-height: 1.35; color: #1a1a1a; padding: 4px;
+    align-items: flex-start;
+    cursor: move;
+  }
+  .el[data-type="text"][contenteditable="true"] {
+    cursor: text; outline: 2px solid var(--accent); background: #fbfffd;
+  }
+  .el[data-type="image"] {
+    cursor: move; border-radius: 2px; overflow: hidden;
+    background: repeating-conic-gradient(#e9edf3 0% 25%, #f5f7fa 0% 50%) 50% / 16px 16px;
+  }
+  .el[data-type="image"] img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .el[data-type="image"] .img-broken {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #9aa2b1; text-align: center; padding: 6px;
+  }
+
+  .overlay-box {
+    position: absolute; border: 1.5px solid var(--overlay);
+    pointer-events: none;
+  }
+  .handle {
+    position: absolute; width: 10px; height: 10px;
+    background: var(--overlay); border: 1.5px solid white; border-radius: 2px;
+    right: -6px; bottom: -6px; cursor: nwse-resize;
+    pointer-events: all;
+  }
+
+  #stage.preview-mode .el { cursor: default; }
+
+  /* ---------- RIGHT PANEL (Command Log) ---------- */
+  #right-panel {
+    width: 260px; flex-shrink: 0;
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  #right-panel .panel-title { padding: 12px 12px 0 12px; margin-bottom: 6px; }
+  #cmd-log {
+    flex: 1; overflow-y: auto; padding: 0 10px 10px 10px;
+    display: flex; flex-direction: column-reverse; gap: 5px;
+  }
+  .cmd-entry {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.8px;
+    background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; color: var(--text-dim);
+  }
+  .cmd-entry .type { color: var(--accent); font-weight: 600; }
+  .cmd-entry .undone { text-decoration: line-through; opacity: .45; }
+  .cmd-entry .ts { float: right; opacity: .6; }
+
+  #layer-legend {
+    padding: 10px 12px; border-top: 1px solid var(--border);
+    font-size: 10.5px; color: var(--text-dim); line-height: 1.7;
+  }
+  #layer-legend b { color: var(--text-primary); }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+
+  /* ---------- MODAL ---------- */
+  #modal-backdrop {
+    position: fixed; inset: 0; background: rgba(10,11,15,.6);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  #modal-backdrop.open { display: flex; }
+  #modal {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; width: 320px;
+  }
+  #modal h3 { margin: 0 0 12px 0; font-size: 14px; }
+  #modal input {
+    width: 100%; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--bg-panel-2); color: var(--text-primary); font-family: inherit; font-size: 13px;
+    margin-bottom: 12px;
+  }
+  #modal .row { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* ---------- TOAST ---------- */
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--bg-panel-2); border: 1px solid var(--accent); color: var(--text-primary);
+    padding: 9px 16px; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: all .2s ease; pointer-events: none; z-index: 60;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="storage-banner">
+    <span>⚠ Vaqtinchalik xotira rejimi — saqlangan ma'lumotlar sahifa yangilanganda yo'qoladi.</span>
+    <span class="badge">NON-PERSISTENT</span>
+  </div>
+  <div id="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-name">mySpring Suite</div>
+        <div class="brand-tag">MVP · vertical slice</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <button id="btn-new-project">＋ Yangi loyiha</button>
+    <button id="btn-save">💾 Saqlash</button>
+    <button id="btn-reload">↺ Qayta yuklash</button>
+    <div class="divider"></div>
+    <button id="btn-new-slide">＋ Slayd</button>
+    <button id="btn-add-text">🅣 Matn</button>
+    <button id="btn-add-image">🖼 Rasm</button>
+    <div class="divider"></div>
+    <button id="btn-undo" class="icon-only" title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button id="btn-redo" class="icon-only" title="Redo (Ctrl+Y)">↷ Redo</button>
+    <div class="spacer"></div>
+    <div id="mode-toggle">
+      <button id="mode-edit" class="active">✎ Tahrirlash</button>
+      <button id="mode-preview">▶ Preview</button>
+    </div>
+  </div>
+
+  <div id="body">
+    <div id="left-panel">
+      <div class="panel-title">Slaydlar</div>
+      <div id="slide-list"></div>
+    </div>
+
+    <div id="center-panel">
+      <div id="stage-wrap">
+        <div id="stage-label"></div>
+        <div id="stage"></div>
+      </div>
+    </div>
+
+    <div id="right-panel">
+      <div class="panel-title">Command Log</div>
+      <div id="cmd-log"></div>
+      <div id="layer-legend">
+        <div><span class="dot" style="background:#37d99b"></span><b>Object Model</b> — loyiha ma'lumotlari</div>
+        <div><span class="dot" style="background:#5aa9ff"></span><b>Command Layer</b> — yagona mutatsiya eshigi</div>
+        <div><span class="dot" style="background:#f5b942"></span><b>State Mgmt</b> — Object/UI/History ajratilgan</div>
+        <div><span class="dot" style="background:#ef5a6f"></span><b>Rendering</b> — DOM Content + Overlay qatlami</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-backdrop">
+  <div id="modal"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* =========================================================================
+   1. OBJECT MODEL
+   Deklarativ, serializable, framework-agnostic sxema.
+   Rendering Engine yoki UI kodi buni HECH QACHON to'g'ridan-to'g'ri
+   mutatsiya qilmaydi — faqat Command Layer orqali.
+   ========================================================================= */
+const SCHEMA_VERSION = "1.0.0";
+
+function uuid() {
+  return (crypto.randomUUID ? crypto.randomUUID() :
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    }));
+}
+
+function createElement(type, x, y, extra = {}) {
+  const base = {
+    id: uuid(),
+    type,
+    x, y,
+    width: extra.width ?? (type === 'text' ? 240 : 220),
+    height: extra.height ?? (type === 'text' ? 50 : 160),
+    metadata: { createdAt: Date.now() }
+  };
+  if (type === 'text') base.text = extra.text ?? 'Matnni bosing va tahrirlang';
+  if (type === 'image') base.src = extra.src ?? '';
+  return base;
+}
+
+function createSlide() {
+  return { id: uuid(), elements: [] };
+}
+
+function createProject(name) {
+  return {
+    id: uuid(),
+    schemaVersion: SCHEMA_VERSION,
+    name,
+    slides: [createSlide()],
+    metadata: { createdAt: Date.now() }
+  };
+}
+
+/* =========================================================================
+   2. COMMAND LAYER
+   Yagona mutatsiya eshigi (Single Mutation Gateway).
+   Har bir funksiya: (project, payload) -> yangi, immutable project.
+   Hech biri joriy `project`ni o'zgartirmaydi (mutate qilmaydi),
+   har doim yangi obyekt qaytaradi (structural sharing).
+   ========================================================================= */
+const CommandHandlers = {
+  CREATE_PROJECT: (project, { name }) => createProject(name),
+
+  CREATE_SLIDE: (project) => ({
+    ...project,
+    slides: [...project.slides, createSlide()]
+  }),
+
+  ADD_TEXT_ELEMENT: (project, { slideId, x, y }) => mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: [...slide.elements, createElement('text', x, y)]
+  })),
+
+  ADD_IMAGE_ELEMENT: (project, { slideId, x, y, src }) => mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: [...slide.elements, createElement('image', x, y, { src })]
+  })),
+
+  MOVE_ELEMENT: (project, { slideId, elementId, x, y }) => mutateElement(project, slideId, elementId, el => ({
+    ...el, x, y
+  })),
+
+  RESIZE_ELEMENT: (project, { slideId, elementId, width, height }) => mutateElement(project, slideId, elementId, el => ({
+    ...el,
+    width: Math.max(24, width),
+    height: Math.max(24, height)
+  })),
+
+  SET_TEXT: (project, { slideId, elementId, text }) => mutateElement(project, slideId, elementId, el => ({
+    ...el, text
+  })),
+};
+
+function mutateSlide(project, slideId, fn) {
+  return {
+    ...project,
+    slides: project.slides.map(s => s.id === slideId ? fn(s) : s)
+  };
+}
+function mutateElement(project, slideId, elementId, fn) {
+  return mutateSlide(project, slideId, slide => ({
+    ...slide,
+    elements: slide.elements.map(el => el.id === elementId ? fn(el) : el)
+  }));
+}
+
+// --- Validation (Command Validation, spesifikatsiyaga mos: pre-condition check) ---
+function validateCommand(project, command) {
+  if (!CommandHandlers[command.type]) return `Noma'lum Command turi: ${command.type}`;
+  if (command.type !== 'CREATE_PROJECT' && !project) return 'Loyiha mavjud emas';
+  return null;
+}
+
+/* =========================================================================
+   3. STATE MANAGEMENT
+   Uch turdagi holat qat'iy ajratilgan:
+   - Object Model State  (Command Layer orqaligina yoziladi)
+   - UI/Local Editor State (Editor Framework boshqaradi, Object Model'ga tegmaydi)
+   - History (Undo/Redo stack — snapshot-based, MVP uchun soddalashtirilgan)
+   ========================================================================= */
+const AppState = {
+  objectModel: { project: null },          // == Object Model State ==
+  ui: {                                     // == UI / Local Editor State ==
+    activeSlideId: null,
+    selectedElementId: null,
+    mode: 'edit',                           // 'edit' | 'preview'
+  },
+  history: { stack: [], pointer: -1 },      // == History / Undo-Redo ==
+  commandLog: [],                           // Audit — Command/Event Bo'lim 30 soddalashtirilgan
+};
+
+// Dispatch — Command Execution Pipeline (soddalashtirilgan: validate -> apply -> emit -> render)
+function dispatch(command) {
+  const project = AppState.objectModel.project;
+  const error = validateCommand(project, command);
+
+  logCommand(command, error);
+
+  if (error) {
+    toast('Command rad etildi: ' + error);
+    return;
+  }
+
+  const newProject = CommandHandlers[command.type](project, command.payload || {});
+  AppState.objectModel.project = newProject;
+
+  pushHistory(newProject);
+  render();
+}
+
+function pushHistory(project) {
+  const { stack, pointer } = AppState.history;
+  const truncated = stack.slice(0, pointer + 1);       // Redo stack'ni tozalash
+  truncated.push(project);
+  AppState.history.stack = truncated;
+  AppState.history.pointer = truncated.length - 1;
+}
+
+function undo() {
+  const h = AppState.history;
+  if (h.pointer <= 0) return;
+  h.pointer -= 1;
+  AppState.objectModel.project = h.stack[h.pointer];
+  markLastLogUndone(true);
+  render();
+}
+function redo() {
+  const h = AppState.history;
+  if (h.pointer >= h.stack.length - 1) return;
+  h.pointer += 1;
+  AppState.objectModel.project = h.stack[h.pointer];
+  markLastLogUndone(false);
+  render();
+}
+
+function logCommand(command, error) {
+  AppState.commandLog.push({
+    type: command.type,
+    ts: new Date().toLocaleTimeString('uz-UZ'),
+    error: !!error,
+    undone: false
+  });
+}
+function markLastLogUndone(val) {
+  // Vizual maqsadda — oxirgi bajarilgan (xatosiz) Command'ni belgilash
+  for (let i = AppState.commandLog.length - 1; i >= 0; i--) {
+    if (!AppState.commandLog[i].error) { AppState.commandLog[i].undone = val; return; }
+  }
+}
+
+/* =========================================================================
+   4. RENDERING ENGINE
+   Rendering Contract'ning soddalashtirilgan, bitta-texnologiyali (DOM) amalga
+   oshirilishi. Content qatlami (renderElementContent) — Editor'da HAM,
+   Preview/Runtime'da HAM bir xil funksiya (ADR-03: Preview = Runtime +
+   Draft). Faqat Editor rejimida ustiga Overlay qatlami qo'shiladi.
+   Rendering Engine hech qachon Object Model'ni yozmaydi — faqat o'qiydi,
+   foydalanuvchi harakatlarini esa Command sifatida Command Layer'ga uzatadi.
+   ========================================================================= */
+
+function getActiveSlide() {
+  const p = AppState.objectModel.project;
+  if (!p) return null;
+  return p.slides.find(s => s.id === AppState.ui.activeSlideId) || p.slides[0];
+}
+
+function render() {
+  renderStorageBanner();
+  renderTopbarState();
+  renderSlideList();
+  renderStage();
+  renderCommandLog();
+}
+
+// StorageAdapter hali aniqlanmagan bo'lishi mumkin (bootstrap paytida
+// bu funksiya ProjectStorage yaratilishidan OLDIN ham chaqirilishi mumkin
+// emas — ProjectStorage script tartibi bo'yicha oldinroq e'lon qilinadi,
+// lekin himoya sifatida `typeof` tekshiruvi qo'shilgan).
+function renderStorageBanner() {
+  const banner = document.getElementById('storage-banner');
+  if (typeof ProjectStorage === 'undefined') return;
+  banner.classList.toggle('show', !ProjectStorage.isPersistent);
+}
+
+function renderTopbarState() {
+  const hasProject = !!AppState.objectModel.project;
+  document.getElementById('btn-save').disabled = !hasProject;
+  document.getElementById('btn-new-slide').disabled = !hasProject;
+  document.getElementById('btn-add-text').disabled = !hasProject || AppState.ui.mode === 'preview';
+  document.getElementById('btn-add-image').disabled = !hasProject || AppState.ui.mode === 'preview';
+  document.getElementById('btn-undo').disabled = AppState.history.pointer <= 0;
+  document.getElementById('btn-redo').disabled = AppState.history.pointer >= AppState.history.stack.length - 1;
+
+  document.getElementById('mode-edit').classList.toggle('active', AppState.ui.mode === 'edit');
+  document.getElementById('mode-preview').classList.toggle('active', AppState.ui.mode === 'preview');
+
+  document.getElementById('stage-label').textContent = hasProject
+    ? `${AppState.objectModel.project.name} · schema v${AppState.objectModel.project.schemaVersion}`
+    : 'Loyiha ochilmagan';
+}
+
+function renderSlideList() {
+  const container = document.getElementById('slide-list');
+  container.innerHTML = '';
+  const project = AppState.objectModel.project;
+  if (!project) return;
+
+  project.slides.forEach((slide, i) => {
+    const div = document.createElement('div');
+    div.className = 'slide-thumb' + (slide.id === AppState.ui.activeSlideId ? ' active' : '');
+    div.innerHTML = `<span class="num">${i + 1}</span><div class="slide-thumb-inner"></div>`;
+    const inner = div.querySelector('.slide-thumb-inner');
+    slide.elements.forEach(el => {
+      const mini = document.createElement('div');
+      mini.className = 'mini-el';
+      mini.style.left = (el.x / 960 * 100) + '%';
+      mini.style.top = (el.y / 540 * 100) + '%';
+      mini.style.width = Math.max(4, el.width / 960 * 100) + '%';
+      mini.style.height = Math.max(4, el.height / 540 * 100) + '%';
+      inner.appendChild(mini);
+    });
+    div.addEventListener('click', () => {
+      AppState.ui.activeSlideId = slide.id;
+      AppState.ui.selectedElementId = null;
+      render();
+    });
+    container.appendChild(div);
+  });
+}
+
+function renderElementContent(el) {
+  const wrap = document.createElement('div');
+  wrap.className = 'el';
+  wrap.dataset.type = el.type;
+  wrap.dataset.id = el.id;
+  wrap.style.left = el.x + 'px';
+  wrap.style.top = el.y + 'px';
+  wrap.style.width = el.width + 'px';
+  wrap.style.height = el.height + 'px';
+
+  if (el.type === 'text') {
+    wrap.textContent = el.text;
+  } else if (el.type === 'image') {
+    if (el.src) {
+      const img = document.createElement('img');
+      img.src = el.src;
+      img.onerror = () => { wrap.innerHTML = '<div class="img-broken">Rasm yuklanmadi</div>'; };
+      wrap.appendChild(img);
+    } else {
+      wrap.innerHTML = '<div class="img-broken">URL berilmagan</div>';
+    }
+  }
+  return wrap;
+}
+
+function renderStage() {
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
+  stage.classList.toggle('preview-mode', AppState.ui.mode === 'preview');
+
+  const project = AppState.objectModel.project;
+  if (!project) return;
+  if (!AppState.ui.activeSlideId) AppState.ui.activeSlideId = project.slides[0].id;
+  const slide = getActiveSlide();
+  if (!slide) return;
+
+  const isPreview = AppState.ui.mode === 'preview';
+
+  slide.elements.forEach(el => {
+    const node = renderElementContent(el);
+
+    if (!isPreview) {
+      // ---- EDITOR RENDERER: Content + Overlay ----
+      node.addEventListener('mousedown', (e) => startDrag(e, slide.id, el));
+      if (el.type === 'text') {
+        node.addEventListener('dblclick', (e) => enterTextEditMode(e, slide.id, el, node));
+      }
+      stage.appendChild(node);
+
+      if (AppState.ui.selectedElementId === el.id) {
+        const overlay = document.createElement('div');
+        overlay.className = 'overlay-box';
+        overlay.style.left = el.x + 'px';
+        overlay.style.top = el.y + 'px';
+        overlay.style.width = el.width + 'px';
+        overlay.style.height = el.height + 'px';
+        const handle = document.createElement('div');
+        handle.className = 'handle';
+        handle.style.pointerEvents = 'all';
+        handle.addEventListener('mousedown', (e) => startResize(e, slide.id, el));
+        overlay.appendChild(handle);
+        stage.appendChild(overlay);
+      }
+    } else {
+      // ---- RUNTIME/PREVIEW RENDERER: faqat Content ----
+      stage.appendChild(node);
+    }
+  });
+
+  if (!isPreview) {
+    stage.addEventListener('mousedown', (e) => {
+      if (e.target === stage) {
+        AppState.ui.selectedElementId = null;
+        render();
+      }
+    }, { once: true });
+  }
+}
+
+function renderCommandLog() {
+  const container = document.getElementById('cmd-log');
+  container.innerHTML = '';
+  AppState.commandLog.slice(-60).forEach(entry => {
+    const div = document.createElement('div');
+    div.className = 'cmd-entry';
+    div.innerHTML = `<span class="type ${entry.undone ? 'undone' : ''}">${entry.type}</span>` +
+      (entry.error ? ' <span style="color:var(--danger)">✕ rad etildi</span>' : '') +
+      `<span class="ts">${entry.ts}</span>`;
+    container.appendChild(div);
+  });
+}
+
+/* ---------- Drag to move (Overlay o'qiydi, natijada Command yuboradi) ---------- */
+function startDrag(e, slideId, el) {
+  if (AppState.ui.mode === 'preview') return;
+  e.stopPropagation();
+  AppState.ui.selectedElementId = el.id;
+  render();
+
+  const stageRect = document.getElementById('stage').getBoundingClientRect();
+  const startX = e.clientX, startY = e.clientY;
+  const originX = el.x, originY = el.y;
+  let moved = false;
+
+  function onMove(ev) {
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
+    const node = document.querySelector(`.el[data-id="${el.id}"]`);
+    if (node) {
+      node.style.left = clamp(originX + dx, 0, 960 - el.width) + 'px';
+      node.style.top = clamp(originY + dy, 0, 540 - el.height) + 'px';
+    }
+  }
+  function onUp(ev) {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (!moved) return;
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    dispatch({
+      type: 'MOVE_ELEMENT',
+      payload: {
+        slideId, elementId: el.id,
+        x: clamp(originX + dx, 0, 960 - el.width),
+        y: clamp(originY + dy, 0, 540 - el.height)
+      }
+    });
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function startResize(e, slideId, el) {
+  e.stopPropagation(); e.preventDefault();
+  const startX = e.clientX, startY = e.clientY;
+  const originW = el.width, originH = el.height;
+
+  function onMove(ev) {
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    const node = document.querySelector(`.el[data-id="${el.id}"]`);
+    const overlay = document.querySelector('.overlay-box');
+    const w = Math.max(24, originW + dx), h = Math.max(24, originH + dy);
+    if (node) { node.style.width = w + 'px'; node.style.height = h + 'px'; }
+    if (overlay) { overlay.style.width = w + 'px'; overlay.style.height = h + 'px'; }
+  }
+  function onUp(ev) {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    dispatch({
+      type: 'RESIZE_ELEMENT',
+      payload: { slideId, elementId: el.id, width: Math.max(24, originW + dx), height: Math.max(24, originH + dy) }
+    });
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function enterTextEditMode(e, slideId, el, node) {
+  e.stopPropagation();
+  node.contentEditable = 'true';
+  node.focus();
+  document.execCommand('selectAll', false, null);
+
+  node.addEventListener('blur', function onBlur() {
+    node.removeEventListener('blur', onBlur);
+    node.contentEditable = 'false';
+    const newText = node.textContent.trim() || 'Matn';
+    if (newText !== el.text) {
+      dispatch({ type: 'SET_TEXT', payload: { slideId, elementId: el.id, text: newText } });
+    }
+  }, { once: true });
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+/* =========================================================================
+   5. STORAGE ADAPTER
+   ---------------------------------------------------------------------
+   Butun ilovada window.storage, localStorage yoki IndexedDB'ga hech qanday
+   boshqa joydan to'g'ridan-to'g'ri murojaat qilinmaydi — faqat shu modul
+   orqali. Bu Rendering Engine hujjatidagi "Adapter" tamoyilining Persistence
+   qatlamidagi tabiiy davomi: yuqori qatlam backend qanday ekanini bilmaydi.
+
+   Backend ustuvorligi (birinchi mos kelgani ishlatiladi):
+     1) Claude Artifact Storage   (window.storage)      — persistent
+     2) Browser Storage           (localStorage)         — persistent
+     3) In-Memory Fallback        (JS Map)                — NON-PERSISTENT
+
+   Kelajakda IndexedDB yoki Cloud Storage qo'shilganda — faqat shu ro'yxatga
+   yangi backend implementatsiyasi qo'shiladi (masalan, katta hajmli Asset
+   Storage uchun IndexedDB, 2 va 3 orasiga). Editor/Command/Rendering kodi
+   BUTUNLAY tegilmaydi, chunki ular faqat ProjectStorage/AssetStorage
+   interfeysiga (get/set/remove) murojaat qiladi.
+   ========================================================================= */
+
+const StorageBackendType = {
+  CLAUDE_ARTIFACT: 'claude-artifact',
+  BROWSER: 'browser-localStorage',
+  MEMORY: 'memory-fallback',
+};
+
+// ---- Har bir backend uchun xom (raw) implementatsiya: get/set/remove(fullKey) ----
+const RawBackends = {
+  claudeArtifact: {
+    async get(fullKey) {
+      try {
+        const result = await window.storage.get(fullKey, false);
+        return result ? result.value : null;
+      } catch (_) {
+        return null; // kalit topilmadi — window.storage.get xato tashlaydi
+      }
+    },
+    async set(fullKey, value) {
+      await window.storage.set(fullKey, value, false);
+    },
+    async remove(fullKey) {
+      try { await window.storage.delete(fullKey, false); } catch (_) {}
+    },
+  },
+  browserLocalStorage: {
+    async get(fullKey) {
+      const v = window.localStorage.getItem(fullKey);
+      return v === null ? null : v;
+    },
+    async set(fullKey, value) {
+      window.localStorage.setItem(fullKey, value);
+    },
+    async remove(fullKey) {
+      window.localStorage.removeItem(fullKey);
+    },
+  },
+  memory: (() => {
+    const store = new Map();
+    return {
+      async get(fullKey) { return store.has(fullKey) ? store.get(fullKey) : null; },
+      async set(fullKey, value) { store.set(fullKey, value); },
+      async remove(fullKey) { store.delete(fullKey); },
+    };
+  })(),
+};
+
+// ---- Backend aniqlash: bir marta, ilova ishga tushganda ----
+function detectStorageBackend() {
+  // 1) Claude Artifact Storage
+  if (typeof window.storage !== 'undefined'
+      && typeof window.storage.get === 'function'
+      && typeof window.storage.set === 'function') {
+    return { type: StorageBackendType.CLAUDE_ARTIFACT, impl: RawBackends.claudeArtifact, persistent: true };
+  }
+  // 2) Browser localStorage
+  try {
+    const probeKey = '__myspring_probe__';
+    window.localStorage.setItem(probeKey, '1');
+    window.localStorage.removeItem(probeKey);
+    return { type: StorageBackendType.BROWSER, impl: RawBackends.browserLocalStorage, persistent: true };
+  } catch (_) { /* localStorage yo'q yoki bloklangan */ }
+  // 3) In-memory fallback — NON-PERSISTENT
+  return { type: StorageBackendType.MEMORY, impl: RawBackends.memory, persistent: false };
+}
+
+const ActiveStorageBackend = detectStorageBackend();
+
+// ---- Namespace-based adapter fabrikasi ----
+// Har bir namespace (masalan, "project", "assets") o'z kalit doirasiga ega,
+// lekin barchasi bitta aniqlangan backend ustida ishlaydi.
+function createStorageAdapter(namespace) {
+  const prefix = `myspring:${namespace}:`;
+  return {
+    namespace,
+    backendType: ActiveStorageBackend.type,
+    isPersistent: ActiveStorageBackend.persistent,
+    async get(key) { return ActiveStorageBackend.impl.get(prefix + key); },
+    async set(key, value) { return ActiveStorageBackend.impl.set(prefix + key, value); },
+    async remove(key) { return ActiveStorageBackend.impl.remove(prefix + key); },
+  };
+}
+
+// Loyiha JSON'i (Object Model State) — o'zining alohida namespace'i.
+const ProjectStorage = createStorageAdapter('project');
+
+// Kelajakdagi binary Asset Storage (OMS Bo'lim 11: rasm/video/audio fayllar)
+// uchun ATAYLAB oldindan ajratilgan, alohida namespace. Hozircha MVP'da
+// rasm faqat URL orqali qo'shiladi (haqiqiy fayl yuklash yo'q), shuning
+// uchun bu adapter hali chaqirilmaydi — lekin interfeys tayyor, shunda
+// fayl yuklash funksiyasi qo'shilganda Project JSON bilan bir xil kalit
+// makonida "aralashib ketish" xavfi bo'lmaydi.
+const AssetStorage = createStorageAdapter('assets'); // eslatma: hozircha ishlatilmaydi
+
+function storageBackendLabel(type) {
+  if (type === StorageBackendType.CLAUDE_ARTIFACT) return 'Claude Artifact Storage';
+  if (type === StorageBackendType.BROWSER) return 'Brauzer (localStorage)';
+  return 'Vaqtinchalik xotira (non-persistent)';
+}
+
+async function saveProject() {
+  const project = AppState.objectModel.project;
+  if (!project) return;
+  try {
+    await ProjectStorage.set('current', JSON.stringify(project));
+    await ProjectStorage.set('lastSlideId', AppState.ui.activeSlideId);
+
+    if (ProjectStorage.isPersistent) {
+      toast(`Loyiha saqlandi ✓ — ${storageBackendLabel(ProjectStorage.backendType)}`);
+    } else {
+      // Non-negotiable: in-memory fallback holatida "saqlandi" deb da'vo qilinmaydi.
+      toast(`⚠ Vaqtinchalik saqlandi — sahifa yangilansa yo'qoladi`);
+    }
+  } catch (err) {
+    console.error(err);
+    toast('Saqlashda xato yuz berdi');
+  }
+}
+
+async function reloadProject() {
+  try {
+    const raw = await ProjectStorage.get('current');
+    if (!raw) { toast('Saqlangan loyiha topilmadi'); return; }
+    const project = JSON.parse(raw);
+    AppState.objectModel.project = project;
+
+    const lastSlideId = await ProjectStorage.get('lastSlideId');
+
+    AppState.ui.activeSlideId = project.slides.find(s => s.id === lastSlideId) ? lastSlideId : project.slides[0].id;
+    AppState.ui.selectedElementId = null;
+    AppState.ui.mode = 'edit';
+    AppState.history = { stack: [project], pointer: 0 };
+    AppState.commandLog = [{ type: 'PROJECT_RELOADED', ts: new Date().toLocaleTimeString('uz-UZ'), error: false, undone: false }];
+    toast(`Loyiha qayta yuklandi ✓ — ${storageBackendLabel(ProjectStorage.backendType)}`);
+    render();
+  } catch (err) {
+    console.error(err);
+    toast('Saqlangan loyiha topilmadi yoki buzilgan');
+  }
+}
+
+/* =========================================================================
+   6. UI GLUE (toolbar tugmalari, modal, toast)
+   ========================================================================= */
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+function showModal({ title, placeholder, defaultValue = '', onSubmit }) {
+  const backdrop = document.getElementById('modal-backdrop');
+  const modal = document.getElementById('modal');
+  modal.innerHTML = `
+    <h3>${title}</h3>
+    <input id="modal-input" type="text" placeholder="${placeholder}" value="${defaultValue}" />
+    <div class="row">
+      <button id="modal-cancel">Bekor qilish</button>
+      <button id="modal-ok" class="primary">Tasdiqlash</button>
+    </div>
+  `;
+  backdrop.classList.add('open');
+  const input = document.getElementById('modal-input');
+  input.focus(); input.select();
+
+  function close() { backdrop.classList.remove('open'); }
+  document.getElementById('modal-cancel').onclick = close;
+  document.getElementById('modal-ok').onclick = () => {
+    const val = input.value.trim();
+    if (!val) { input.focus(); return; }
+    close();
+    onSubmit(val);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('modal-ok').click();
+    if (e.key === 'Escape') close();
+  });
+}
+
+document.getElementById('btn-new-project').addEventListener('click', () => {
+  showModal({
+    title: 'Yangi loyiha yaratish',
+    placeholder: 'Loyiha nomi',
+    defaultValue: 'Nomsiz loyiha',
+    onSubmit: (name) => {
+      AppState.objectModel.project = null;
+      dispatchBootstrap({ type: 'CREATE_PROJECT', payload: { name } });
+    }
+  });
+});
+
+// CREATE_PROJECT — loyiha hali yo'q paytda ham ishlaydigan maxsus dispatch
+function dispatchBootstrap(command) {
+  logCommand(command, null);
+  const project = CommandHandlers.CREATE_PROJECT(null, command.payload);
+  AppState.objectModel.project = project;
+  AppState.ui.activeSlideId = project.slides[0].id;
+  AppState.ui.selectedElementId = null;
+  AppState.ui.mode = 'edit';
+  AppState.history = { stack: [project], pointer: 0 };
+  render();
+}
+
+document.getElementById('btn-save').addEventListener('click', saveProject);
+document.getElementById('btn-reload').addEventListener('click', reloadProject);
+
+document.getElementById('btn-new-slide').addEventListener('click', () => {
+  dispatch({ type: 'CREATE_SLIDE' });
+});
+
+document.getElementById('btn-add-text').addEventListener('click', () => {
+  const slide = getActiveSlide();
+  if (!slide) return;
+  dispatch({ type: 'ADD_TEXT_ELEMENT', payload: { slideId: slide.id, x: 340, y: 240 } });
+});
+
+document.getElementById('btn-add-image').addEventListener('click', () => {
+  const slide = getActiveSlide();
+  if (!slide) return;
+  showModal({
+    title: 'Rasm qo\'shish',
+    placeholder: 'Rasm URL manzili (https://...)',
+    onSubmit: (src) => {
+      dispatch({ type: 'ADD_IMAGE_ELEMENT', payload: { slideId: slide.id, x: 300, y: 180, src } });
+    }
+  });
+});
+
+document.getElementById('btn-undo').addEventListener('click', undo);
+document.getElementById('btn-redo').addEventListener('click', redo);
+
+document.getElementById('mode-edit').addEventListener('click', () => {
+  AppState.ui.mode = 'edit'; AppState.ui.selectedElementId = null; render();
+});
+document.getElementById('mode-preview').addEventListener('click', () => {
+  AppState.ui.mode = 'preview'; AppState.ui.selectedElementId = null; render();
+});
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
+});
+
+/* =========================================================================
+   BOOTSTRAP — ilova ishga tushganda avval saqlangan loyihani tiklashga
+   harakat qiladi (State Hydration, spec Bo'lim 11), topilmasa — yangi
+   demo loyiha yaratadi.
+   ========================================================================= */
+(async function bootstrap() {
+  renderStorageBanner();
+  try {
+    const existing = await ProjectStorage.get('current');
+    if (existing) {
+      await reloadProject();
+      return;
+    }
+  } catch (_) { /* saqlangan loyiha yo'q — yangisini yaratamiz */ }
+
+  dispatchBootstrap({ type: 'CREATE_PROJECT', payload: { name: 'Mening birinchi kursim' } });
+  const slide = getActiveSlide();
+  dispatch({ type: 'ADD_TEXT_ELEMENT', payload: { slideId: slide.id, x: 300, y: 220 } });
+})();
+</script>
+</body>
+</html>
