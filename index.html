@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<title>mySpring Suite — MVP</title>
+<link rel="stylesheet" href="./src/styles/base.css">
+<link rel="stylesheet" href="./src/styles/editor.css">
+<link rel="stylesheet" href="./src/styles/quiz.css">
+<link rel="stylesheet" href="./src/styles/player.css">
+</head>
+<body>
+
+<div id="app">
+  <div id="render-error-banner">
+    <span>⚠ Renderlashda kutilmagan xato yuz berdi — buzilgan element izolyatsiya qilindi, konsolni tekshiring.</span>
+  </div>
+  <div id="storage-banner">
+    <span>⚠ Vaqtinchalik xotira rejimi — saqlangan ma'lumotlar sahifa yangilanganda yo'qoladi.</span>
+    <span class="badge">NON-PERSISTENT</span>
+  </div>
+  <div id="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-name">mySpring Suite</div>
+        <div class="brand-tag">MVP · modular (Sprint R1)</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <button id="btn-new-project">＋ Yangi loyiha</button>
+    <button id="btn-save">💾 Saqlash</button>
+    <button id="btn-reload">↺ Qayta yuklash</button>
+    <button id="btn-course-settings" title="Kurs sozlamalari (o'tish balli va boshqalar)">⚙ Sozlamalar</button>
+    <div class="divider"></div>
+    <button id="btn-new-slide">＋ Slayd</button>
+    <button id="btn-add-text">🅣 Matn</button>
+    <button id="btn-add-image">🖼 Rasm</button>
+    <input type="file" id="file-image-input" accept="image/*" style="display:none" />
+    <div class="dropdown-wrap">
+      <button id="btn-add-shape">▱ Shakl</button>
+      <div id="shape-menu" class="dropdown-menu"></div>
+    </div>
+    <div class="dropdown-wrap">
+      <button id="btn-add-quiz">❓ Quiz</button>
+      <div id="quiz-menu" class="dropdown-menu"></div>
+    </div>
+    <div class="divider"></div>
+    <button id="btn-copy" title="Nusxalash (Ctrl+C)">⧉ Copy</button>
+    <button id="btn-paste" title="Joylash (Ctrl+V)">📋 Paste</button>
+    <button id="btn-duplicate" title="Ikkilamchi nusxa (Ctrl+D)">⎘ Duplicate</button>
+    <button id="btn-delete" title="O'chirish (Delete)">🗑 Delete</button>
+    <div class="divider"></div>
+    <button id="btn-undo" class="icon-only" title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button id="btn-redo" class="icon-only" title="Redo (Ctrl+Y)">↷ Redo</button>
+    <div class="spacer"></div>
+    <span id="preview-score" class="mono" style="font-size:11px;color:var(--text-dim); display:none;"></span>
+    <span id="autosave-indicator"></span>
+    <div id="mode-toggle">
+      <button id="mode-edit" class="active">✎ Tahrirlash</button>
+      <button id="mode-preview">▶ Preview</button>
+    </div>
+  </div>
+
+  <div id="body">
+    <div id="left-panel">
+      <div class="panel-title">Slaydlar</div>
+      <div id="slide-list"></div>
+    </div>
+
+    <div id="center-panel">
+      <div id="stage-wrap">
+        <div id="stage-label"></div>
+        <div id="stage"></div>
+      </div>
+      <div id="learner-nav" class="learner-nav">
+        <button id="learner-exit" title="Learner Mode'dan chiqish">✕ Chiqish</button>
+        <button id="learner-prev">← Oldingi</button>
+        <div class="learner-progress-wrap">
+          <div class="learner-progress-bar"><div id="learner-progress-fill" class="learner-progress-fill"></div></div>
+          <span id="learner-counter" class="mono"></span>
+        </div>
+        <button id="learner-next" class="primary">Keyingi →</button>
+      </div>
+      <div id="learner-hint" class="learner-hint"></div>
+    </div>
+
+    <div id="right-panel">
+      <div class="panel-title">Command Log</div>
+      <div id="cmd-log"></div>
+      <div id="render-timing" class="mono" style="padding:4px 12px; font-size:10px; color:var(--text-dim); border-top:1px solid var(--border);"></div>
+      <div id="layer-legend">
+        <div><span class="dot" style="background:#37d99b"></span><b>Object Model</b> — loyiha ma'lumotlari</div>
+        <div><span class="dot" style="background:#5aa9ff"></span><b>Command Layer</b> — yagona mutatsiya eshigi</div>
+        <div><span class="dot" style="background:#f5b942"></span><b>State Mgmt</b> — Object/UI/History ajratilgan</div>
+        <div><span class="dot" style="background:#ef5a6f"></span><b>Rendering</b> — DOM Content + Overlay qatlami</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-backdrop">
+  <div id="modal"></div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
