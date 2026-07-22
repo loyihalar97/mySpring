@@ -1,0 +1,17 @@
+{
+  "name": "myspring-suite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "mySpring Suite — browser-based eLearning authoring tool (native ES modules, bundlersiz runtime).",
+  "dependencies": {
+    "@supabase/supabase-js": "2.110.8"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  },
+  "scripts": {
+    "vendor:supabase": "esbuild node_modules/@supabase/supabase-js/dist/index.mjs --bundle --format=esm --outfile=vendor/supabase-js.bundle.mjs",
+    "serve": "npx --yes serve . -l 8080"
+  }
+}

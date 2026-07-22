@@ -15,6 +15,8 @@ import { subscribeStateChange } from './core/state.js';
 import { ASSET_CLEANUP_TRIGGERS } from './core/commands.js';
 import { render } from './rendering/renderer.js';
 import { initStorageBackend } from './storage/storage-adapter.js';
+import { initAuth } from './storage/auth.js';
+import { trySyncQueue } from './storage/sync-engine.js';
 import {
   scheduleAutosave, migrateLegacyCurrentProject, scheduleGlobalAssetCleanup,
 } from './storage/project-storage.js';
@@ -38,6 +40,8 @@ subscribeStateChange((event) => {
     toast('Command rad etildi: ' + event.error);
   } else if (event.type === 'project-created') {
     scheduleGlobalAssetCleanup(); // yangi loyiha ochilganda ham foydali (bo'sh, lekin arzon)
+  } else if (event.type === 'auth-changed' && event.user) {
+    trySyncQueue(); // login qilindi — navbatdagi oflayn o'zgarishlarni yuborishga urinish
   }
 });
 
@@ -47,14 +51,20 @@ initKeyboardShortcuts();
 initProjectLibrary();
 
 /* =========================================================================
-   BOOTSTRAP — Sprint R1.1
-   1) Storage Backend'ni ishga tushirish (MAJBURIY birinchi, boshqa hech
-      qanday storage chaqiruvidan oldin).
-   2) Bir martalik legacy migratsiya (eski bitta-loyihali model bo'lsa).
-   3) Project Library'ni ko'rsatish — demo loyiha AVTOMATIK yaratilmaydi.
+   BOOTSTRAP — Sprint R1.2
+   1) Storage Backend'ni ishga tushirish (MAJBURIY birinchi).
+   2) Supabase Auth sessiyasini tiklash (mavjud bo'lsa).
+   3) Bir martalik legacy migratsiya (eski bitta-loyihali model bo'lsa).
+   4) Project Library'ni ko'rsatish — demo loyiha AVTOMATIK yaratilmaydi.
    ========================================================================= */
 (async function bootstrap() {
   await initStorageBackend();
+
+  try {
+    await initAuth();
+  } catch (err) {
+    console.error('[Bootstrap] Auth ishga tushirishda xato', err);
+  }
 
   try {
     const result = await migrateLegacyCurrentProject();
