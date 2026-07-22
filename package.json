@@ -5,7 +5,8 @@
   "type": "module",
   "description": "mySpring Suite — browser-based eLearning authoring tool (native ES modules, bundlersiz runtime).",
   "dependencies": {
-    "@supabase/supabase-js": "2.110.8"
+    "@supabase/supabase-js": "2.110.8",
+    "fake-indexeddb": "^6.2.5"
   },
   "devDependencies": {
     "esbuild": "^0.23.0"

@@ -4,11 +4,13 @@
    Butun ilovada Supabase'ga to'g'ridan-to'g'ri murojaat qilinadigan
    YAGONA modul.
 
-   Sprint R1.2 tuzatishi (talab #3): `renameProject` endi to'g'ridan-to'g'ri
-   `.update()` chaqirmaydi — nazoratsiz, revision-cheklovisiz UPDATE yo'li
-   BUTUNLAY OLIB TASHLANDI. Barcha yozish amallari — `save_project_with_
-   conflict_check` YOKI `rename_project` RPC'lari orqali, ikkalasi ham
-   database trigger orqali revision/updated_at semantikasini kafolatlaydi.
+   Sprint R1.2 (2-tuzatish): barcha yozish amallari (save/rename/delete)
+   endi SECURITY DEFINER RPC'lar orqali, bittа atomik UPDATE...WHERE...
+   RETURNING naqshi bilan — bu haqiqiy optimistik concurrency'ni
+   kafolatlaydi (avvalgi trigger-asoslangan yondashuv buni to'liq
+   kafolatlamas edi). `renameProject` endi `expectedRevision` talab
+   qiladi. `deleteProject` endi to'g'ridan-to'g'ri `.delete()` emas,
+   `delete_project` RPC orqali.
    ========================================================================= */
 
 import { supabase, ASSET_BUCKET } from './supabase-client.js';
@@ -73,22 +75,32 @@ export async function saveProject(project, expectedRevision) {
   return normalizeRpcRow(data[0]);
 }
 
-// Sprint R1.2 tuzatishi: nazoratsiz .update() O'RNIGA himoyalangan RPC.
-export async function renameProject(projectId, newName) {
+// Sprint R1.2 (2-tuzatish): rename ENDI expectedRevision talab qiladi —
+// u ham xuddi content-save bilan bir xil optimistik concurrency
+// tizimida ishtirok etadi (talab: "Rename must also use a secured RPC
+// with expected revision").
+export async function renameProject(projectId, newName, expectedRevision) {
   const { data, error } = await supabase.rpc('rename_project', {
     p_id: projectId,
     p_name: newName,
+    p_expected_revision: expectedRevision ?? null,
   });
   if (error) throw error;
   return normalizeRpcRow(data[0]);
 }
 
-export async function deleteProject(projectId) {
-  const { error } = await supabase.from('projects').delete().eq('id', projectId);
+// Sprint R1.2 (2-tuzatish): to'g'ridan-to'g'ri .delete() O'RNIGA himoyalangan RPC.
+export async function deleteProject(projectId, expectedRevision) {
+  const { data, error } = await supabase.rpc('delete_project', {
+    p_id: projectId,
+    p_expected_revision: expectedRevision ?? null,
+  });
   if (error) throw error;
+  const row = data[0];
+  return { resultCode: row.result, success: row.result === 'deleted' };
 }
 
-/* ---------- Assets (talab #7: fayl cheklovlari + rollback) ---------- */
+/* ---------- Assets (fayl cheklovlari + rollback) ---------- */
 
 export async function uploadAsset(projectId, assetId, dataUrl, mimeType) {
   const user = getCurrentUser();
@@ -109,16 +121,11 @@ export async function uploadAsset(projectId, assetId, dataUrl, mimeType) {
 
   const path = `${user.id}/${projectId}/${assetId}`;
 
-  // 1) Avval faylni yuklaymiz.
   const { error: upErr } = await supabase.storage
     .from(ASSET_BUCKET)
     .upload(path, blob, { contentType: mimeType, upsert: true });
   if (upErr) throw upErr;
 
-  // 2) Keyin metadata yozuvini qo'shamiz. Agar bu MUVAFFAQIYATSIZ bo'lsa —
-  // KOMPENSATSIYA: endigina yuklangan faylni DARHOL o'chiramiz, shunda
-  // Storage'da metadata'siz "yetim" fayl qolib ketmaydi (talab #7:
-  // qisman bajarilgan amal uchun rollback strategiyasi).
   const { error: dbErr } = await supabase.from('project_assets').upsert({
     id: assetId,
     project_id: projectId,
@@ -139,7 +146,6 @@ export async function uploadAsset(projectId, assetId, dataUrl, mimeType) {
   return path;
 }
 
-// Vaqtinchalik (1 soatlik) signed URL qaytaradi — bucket PRIVATE.
 export async function getAsset(assetId) {
   const { data, error } = await supabase
     .from('project_assets')
@@ -163,10 +169,6 @@ export async function deleteAsset(assetId) {
     .eq('id', assetId)
     .maybeSingle();
   if (data) {
-    // Metadata YOZUVINI birinchi o'chiramiz — agar Storage'dan o'chirish
-    // keyinroq muvaffaqiyatsiz bo'lsa, hech bo'lmasa endi hech kim uni
-    // ko'rmaydi (RLS/ilova nuqtai nazaridan "yo'q"), fayl esa keyinroq
-    // qo'lda yoki davriy tozalash orqali olib tashlanishi mumkin.
     await supabase.from('project_assets').delete().eq('id', assetId);
     try {
       await supabase.storage.from(ASSET_BUCKET).remove([data.storage_path]);

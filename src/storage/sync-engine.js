@@ -143,20 +143,40 @@ export async function saveProject(project) {
 export async function deleteProject(projectId) {
   await local.deleteProject(projectId);
   if (!isCloudAvailable()) return;
-  try { await cloud.deleteProject(projectId); }
-  catch (err) { console.error('[Sync] cloud delete xatosi', err); }
+  try {
+    const result = await cloud.deleteProject(projectId, null); // revisiondan qat'iy nazar o'chirish (foydalanuvchi ataylab tasdiqlagan)
+    if (!result.success) {
+      console.error('[Sync] cloud delete muvaffaqiyatsiz:', result.resultCode);
+      toast('\u26a0 Bulutdan o\u2018chirishda xato: ' + result.resultCode);
+    }
+  } catch (err) {
+    console.error('[Sync] cloud delete xatosi', err);
+  }
 }
 
 export async function renameProject(projectId, newName) {
   const ok = await local.renameProject(projectId, newName);
   if (!isCloudAvailable()) return ok;
   try {
-    const result = await cloud.renameProject(projectId, newName);
-    if (!result.success) {
+    const expectedRevision = await getRevisionCache(projectId);
+    const result = await cloud.renameProject(projectId, newName, expectedRevision);
+
+    if (result.resultCode === 'conflict') {
+      // Rename ham xuddi content-save bilan bir xil optimistik
+      // concurrency tizimida ishtirok etadi — bulutda yangiroq versiya
+      // bo'lsa, nomlash ham "konflikt" sifatida ko'rsatiladi.
+      pendingConflict = {
+        projectId, localProject: await local.getProject(projectId),
+        serverRevision: result.revision, serverUpdatedAt: result.serverUpdatedAt,
+      };
+      setSyncStatus('conflict');
+      toast('\u26a0 Nomlashda sinxronizatsiya konflikti \u2014 bulutda yangiroq versiya bor');
+    } else if (!result.success) {
       console.error('[Sync] cloud rename muvaffaqiyatsiz:', result.resultCode);
       toast('\u26a0 Bulutda nomlashda xato: ' + result.resultCode);
     } else {
       await setRevisionCache(projectId, result.revision);
+      setSyncStatus('synced'); lastSyncedAt = Date.now();
     }
   } catch (err) {
     console.error('[Sync] cloud rename xatosi', err);
