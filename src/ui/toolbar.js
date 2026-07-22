@@ -7,18 +7,18 @@
    xavfsiz — hech kim toolbar.js'ni qaytadan import qilmaydi.
    ========================================================================= */
 
-import { AppState, getActiveSlide, clearSelection } from '../core/state.js';
-import { dispatch, dispatchBootstrap } from '../core/commands.js';
+import { AppState, getActiveSlide, clearSelection, notifyStateChange } from '../core/state.js';
+import { dispatch } from '../core/commands.js';
 import { undo, redo } from '../core/history.js';
 import { uuid } from '../core/object-model.js';
 import { validateQuizForPreview } from '../core/validation.js';
 import { resetRuntimeState } from '../runtime/runtime-state.js';
 import { goToPreviousSlide, goToNextSlide, exitLearnerMode } from '../runtime/course-player.js';
-import { saveProject, reloadProject } from '../storage/project-storage.js';
+import { manualSaveCurrentProject, reloadCurrentProject } from '../storage/project-storage.js';
 import { AssetStorage } from '../storage/asset-storage.js';
 import { cacheAsset } from '../storage/asset-cache.js';
 import { toast } from './toast.js';
-import { showModal, showCourseSettingsModal, showPreviewBlockedModal } from './modals.js';
+import { showCourseSettingsModal, showPreviewBlockedModal } from './modals.js';
 import { deleteSelection, duplicateSelection, copySelection, pasteClipboard } from './selection.js';
 import { render } from '../rendering/renderer.js';
 
@@ -32,20 +32,20 @@ function readFileAsDataURL(file) {
 }
 
 export function initToolbar() {
-  document.getElementById('btn-new-project').addEventListener('click', () => {
-    showModal({
-      title: 'Yangi loyiha yaratish',
-      placeholder: 'Loyiha nomi',
-      defaultValue: 'Nomsiz loyiha',
-      onSubmit: (name) => {
-        AppState.objectModel.project = null;
-        dispatchBootstrap({ type: 'CREATE_PROJECT', payload: { name } });
-      }
-    });
+  // Sprint R1.1: "Yangi loyiha" endi Project Library'da (ui/project-library.js).
+  // Editor'dan esa "Loyihalar" tugmasi orqali qaytiladi — chiqishdan oldin
+  // joriy loyiha darhol saqlanadi (ma'lumot yo'qolmasligi uchun).
+  document.getElementById('btn-back-to-library').addEventListener('click', async () => {
+    const project = AppState.objectModel.project;
+    if (project) {
+      await manualSaveCurrentProject();
+    }
+    AppState.ui.view = 'library';
+    notifyStateChange({ type: 'view-changed' });
   });
 
-  document.getElementById('btn-save').addEventListener('click', saveProject);
-  document.getElementById('btn-reload').addEventListener('click', reloadProject);
+  document.getElementById('btn-save').addEventListener('click', manualSaveCurrentProject);
+  document.getElementById('btn-reload').addEventListener('click', reloadCurrentProject);
   document.getElementById('btn-course-settings').addEventListener('click', showCourseSettingsModal);
 
   document.getElementById('btn-new-slide').addEventListener('click', () => {

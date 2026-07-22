@@ -244,17 +244,8 @@ export function dispatch(command) {
   notifyStateChange({ type: 'command', command });
 }
 
-// CREATE_PROJECT — loyiha hali yo'q paytda ham ishlaydigan maxsus dispatch
-// (bootstrap va "Yangi loyiha" tugmasi uchun).
-export function dispatchBootstrap(command) {
-  const commandId = uuid();
-  logCommand(command, null, commandId);
-  const project = CommandHandlers.CREATE_PROJECT(null, command.payload);
-  AppState.objectModel.project = project;
-  AppState.ui.activeSlideId = project.slides[0].id;
-  AppState.ui.selectedElementIds = new Set();
-  AppState.ui.clipboard = [];
-  AppState.ui.mode = 'edit';
-  AppState.history = { stack: [{ id: commandId, project }], pointer: 0 };
-  notifyStateChange({ type: 'bootstrap' });
-}
+// Eslatma (Sprint R1.1): loyiha yaratish endi
+// storage/project-storage.js#createAndOpenNewProject() orqali amalga
+// oshiriladi (Project Library ko'p-loyihali modeliga mos). Bu yerdagi
+// CREATE_PROJECT CommandHandler o'zi — createProject() factory'ni
+// chaqiruvchi sof funksiya sifatida — o'sha joyda ham qayta ishlatiladi.

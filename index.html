@@ -4,11 +4,29 @@
 <meta charset="UTF-8">
 <title>mySpring Suite — MVP</title>
 <link rel="stylesheet" href="./src/styles/base.css">
+<link rel="stylesheet" href="./src/styles/library.css">
 <link rel="stylesheet" href="./src/styles/editor.css">
 <link rel="stylesheet" href="./src/styles/quiz.css">
 <link rel="stylesheet" href="./src/styles/player.css">
 </head>
 <body>
+
+<div id="library-view">
+  <div class="library-header">
+    <div class="library-header-left">
+      <div class="brand-mark"></div>
+      <div class="library-title">mySpring Suite — Loyihalar</div>
+    </div>
+    <button id="btn-library-new-project" class="primary">＋ Yangi loyiha</button>
+  </div>
+  <div id="library-backend-label"></div>
+  <div id="library-storage-warning" class="library-storage-warning"></div>
+  <div id="library-grid" class="library-grid"></div>
+  <div id="library-empty" class="library-empty">
+    <div>Hali loyihalar yo'q.</div>
+    <div>Boshlash uchun "＋ Yangi loyiha" tugmasini bosing.</div>
+  </div>
+</div>
 
 <div id="app">
   <div id="render-error-banner">
@@ -27,7 +45,7 @@
       </div>
     </div>
     <div class="divider"></div>
-    <button id="btn-new-project">＋ Yangi loyiha</button>
+    <button id="btn-back-to-library" title="Loyihalar ro'yxatiga qaytish">📚 Loyihalar</button>
     <button id="btn-save">💾 Saqlash</button>
     <button id="btn-reload">↺ Qayta yuklash</button>
     <button id="btn-course-settings" title="Kurs sozlamalari (o'tish balli va boshqalar)">⚙ Sozlamalar</button>

@@ -29,10 +29,23 @@ import {
 import { getRenderSlide } from '../runtime/runtime-state.js';
 import { ProjectStorage } from '../storage/project-storage.js';
 import { clamp } from '../core/utils.js';
+import { renderLibraryView } from '../ui/project-library.js';
 
 /* ---------- P0-1: Global Rendering Error Boundary ---------- */
 export function render() {
   try {
+    // Sprint R1.1: yuqori darajadagi ekran tanlovi — 'library' | 'editor'.
+    // renderLibraryView() asinxron (o'z DOM yangilanishini mustaqil
+    // boshqaradi); bu yerda faqat ko'rinuvchanlik almashtiriladi.
+    const isLibrary = AppState.ui.view === 'library';
+    document.getElementById('app').style.display = isLibrary ? 'none' : 'flex';
+    document.getElementById('library-view').style.display = isLibrary ? 'flex' : 'none';
+
+    if (isLibrary) {
+      renderLibraryView();
+      return;
+    }
+
     renderStorageBanner();
     renderTopbarState();
     renderLearnerMode();

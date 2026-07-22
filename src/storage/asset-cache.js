@@ -2,16 +2,21 @@
    storage/asset-cache.js
    ---------------------------------------------------------------------
    P1-5: chegaralangan LRU kesh. Runtime'da ObjectURL saqlanadi (dataURL
-   emas). AssetStorage'dagi PERSISTENT nusxa har doim dataURL (matn) —
-   bu esa faqat runtime optimallashtirish, HECH QACHON haqiqat manbai emas.
+   emas). AssetStorage'dagi PERSISTENT nusxa har doim dataURL (matn).
 
-   Sprint R1: asinxron rasm yuklangandan keyingi qayta-render zarurati
-   `notifyStateChange()` orqali e'lon qilinadi — bu modul rendering/*.js'ni
-   import qilmaydi.
+   Sprint R1.1: Bu modul endi core/state.js'ga HAM, storage/project-
+   storage.js'ga HAM bog'liq emas — sof (pure) qatlam. Ko'p-loyihali
+   arxitekturada "qaysi asset qaysi loyiha(lar)da ishlatilmoqda" degan
+   savolga javob berish uchun BARCHA loyihalarni bilish kerak — bu esa
+   project-storage.js'ning vazifasi (listProjects/getProject). Agar bu
+   modul project-storage.js'ni import qilsa, ikkalasi orasida aylanma
+   bog'liqlik yuzaga kelardi (project-storage.js allaqachon tozalashni
+   ishga tushirish uchun bu modulni import qiladi). Shuning uchun bu
+   yerdagi funksiyalar "referencedAssetIds" to'plamini PARAMETR sifatida
+   qabul qiladi — kim chaqirsa, o'sha hisoblab beradi.
    ========================================================================= */
 
 import { AssetStorage } from './asset-storage.js';
-import { AppState } from '../core/state.js';
 
 export const ASSET_CACHE_LIMIT = 20;
 export const AssetCache = new Map(); // assetId -> { objectUrl }
@@ -65,30 +70,27 @@ export async function ensureAssetLoaded(assetId) {
   }
 }
 
-/* ---------- Asset Lifecycle Management (P1-4) ---------- */
-export function getReferencedAssetIds(project) {
+/* ---------- Asset Lifecycle Management (P1-4, Sprint R1.1: ko'p-loyihali) ----------
+   `projects` — barcha (yoki tekshirilishi kerak bo'lgan) loyiha
+   hujjatlarining massivi. Chaqiruvchi (project-storage.js) buni
+   listProjects()+getProject() orqali yig'ib beradi. */
+export function getReferencedAssetIdsAcrossProjects(projects) {
   const ids = new Set();
-  if (!project) return ids;
-  project.slides.forEach(slide => slide.elements.forEach(el => {
-    if (el.type === 'image' && el.assetId) ids.add(el.assetId);
-  }));
+  (projects || []).forEach(project => {
+    if (!project) return;
+    project.slides.forEach(slide => slide.elements.forEach(el => {
+      if (el.type === 'image' && el.assetId) ids.add(el.assetId);
+    }));
+  });
   return ids;
 }
 
-let assetCleanupTimer = null;
-export function scheduleAssetCleanup() {
-  clearTimeout(assetCleanupTimer);
-  assetCleanupTimer = setTimeout(() => {
-    cleanupOrphanedAssets(AppState.objectModel.project);
-  }, 2000);
-}
-
-export async function cleanupOrphanedAssets(project) {
-  if (!project) return;
+// Sof funksiya: qaysi assetId'lar hali ham kerakligini CHAQIRUVCHI hisoblab
+// beradi (referencedAssetIds — Set<string>). Bu modul buni bilmaydi.
+export async function cleanupOrphanedAssets(referencedAssetIds) {
   try {
-    const referenced = getReferencedAssetIds(project);
     const storedIds = await AssetStorage.list();
-    const orphaned = storedIds.filter(id => !referenced.has(id));
+    const orphaned = storedIds.filter(id => !referencedAssetIds.has(id));
     for (const id of orphaned) {
       await AssetStorage.remove(id);
       if (AssetCache.has(id)) {

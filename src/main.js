@@ -2,69 +2,68 @@
    src/main.js
    ---------------------------------------------------------------------
    Yagona kirish nuqtasi (Composition Root). Faqat shu fayl:
-     1) render()ni subscribeStateChange orqali ulaydi (Sprint R1 markaziy
-        qoidasi — boshqa hech qanday modul buni qilmaydi);
+     1) render()ni subscribeStateChange orqali ulaydi;
      2) notifyStateChange event turiga qarab autosave/asset-cleanup/toast
-        orkestratsiyasini bajaradi (avval core/commands.js ichida to'g'ridan-
-        to'g'ri bajarilardi);
+        orkestratsiyasini bajaradi;
      3) barcha ui/*.js init() funksiyalarini chaqiradi;
-     4) bootstrap ketma-ketligini ishga tushiradi (State Hydration).
+     4) Storage Backend'ni ishga tushiradi (async), legacy migratsiyani
+        bir marta bajaradi, Project Library'ni ko'rsatadi (Sprint R1.1:
+        demo loyiha AVTOMATIK yaratilmaydi).
    ========================================================================= */
 
-import { AppState, subscribeStateChange } from './core/state.js';
-import { dispatch, dispatchBootstrap, ASSET_CLEANUP_TRIGGERS } from './core/commands.js';
-import { getActiveSlide } from './core/state.js';
+import { subscribeStateChange } from './core/state.js';
+import { ASSET_CLEANUP_TRIGGERS } from './core/commands.js';
 import { render } from './rendering/renderer.js';
-import { ProjectStorage, reloadProject, scheduleAutosave } from './storage/project-storage.js';
-import { scheduleAssetCleanup } from './storage/asset-cache.js';
+import { initStorageBackend } from './storage/storage-adapter.js';
+import {
+  scheduleAutosave, migrateLegacyCurrentProject, scheduleGlobalAssetCleanup,
+} from './storage/project-storage.js';
 import { toast } from './ui/toast.js';
 import { initToolbar } from './ui/toolbar.js';
 import { initKeyboardShortcuts } from './ui/keyboard-shortcuts.js';
+import { initProjectLibrary } from './ui/project-library.js';
 
-/* ---------- Markazlashtirilgan holat-o'zgarishi obunachisi ----------
-   Bu — Sprint R1'ning eng muhim arxitektura qarorining amalga oshirilishi:
-   hech qanday boshqa modul render()ni to'g'ridan-to'g'ri chaqirmaydi
-   (bir nechta hujjatlashtirilgan "ui->rendering" chaqiruvlaridan tashqari,
-   ular ham faqat notifyStateChange ishlatadi). Shu yerda barcha "state
-   o'zgargandan keyin nima qilish kerak" mantig'i markazlashgan. */
+/* ---------- Markazlashtirilgan holat-o'zgarishi obunachisi ---------- */
 subscribeStateChange((event) => {
   render();
 
   if (event.type === 'command') {
     scheduleAutosave();
     if (ASSET_CLEANUP_TRIGGERS.has(event.command.type)) {
-      scheduleAssetCleanup();
+      scheduleGlobalAssetCleanup();
     }
   } else if (event.type === 'undo' || event.type === 'redo') {
     scheduleAutosave();
   } else if (event.type === 'rejected') {
     toast('Command rad etildi: ' + event.error);
-  } else if (event.type === 'bootstrap') {
-    scheduleAssetCleanup(); // yangi loyiha — avvalgi loyihaning barcha asset'lari endi yetim
+  } else if (event.type === 'project-created') {
+    scheduleGlobalAssetCleanup(); // yangi loyiha ochilganda ham foydali (bo'sh, lekin arzon)
   }
 });
 
 /* ---------- UI qatlamini ishga tushirish ---------- */
 initToolbar();
 initKeyboardShortcuts();
+initProjectLibrary();
 
 /* =========================================================================
-   BOOTSTRAP — ilova ishga tushganda avval saqlangan loyihani tiklashga
-   harakat qiladi (State Hydration), topilmasa — yangi demo loyiha
-   yaratadi.
+   BOOTSTRAP — Sprint R1.1
+   1) Storage Backend'ni ishga tushirish (MAJBURIY birinchi, boshqa hech
+      qanday storage chaqiruvidan oldin).
+   2) Bir martalik legacy migratsiya (eski bitta-loyihali model bo'lsa).
+   3) Project Library'ni ko'rsatish — demo loyiha AVTOMATIK yaratilmaydi.
    ========================================================================= */
 (async function bootstrap() {
-  render(); // storage banner va bo'sh holatni darhol ko'rsatish uchun
+  await initStorageBackend();
 
   try {
-    const existing = await ProjectStorage.get('current');
-    if (existing) {
-      await reloadProject();
-      return;
+    const result = await migrateLegacyCurrentProject();
+    if (result.migrated) {
+      toast('Avvalgi loyihangiz Kutubxonaga ko\u2018chirildi');
     }
-  } catch (_) { /* saqlangan loyiha yo'q — yangisini yaratamiz */ }
+  } catch (err) {
+    console.error('[Bootstrap] Legacy migratsiya xatosi', err);
+  }
 
-  dispatchBootstrap({ type: 'CREATE_PROJECT', payload: { name: 'Mening birinchi kursim' } });
-  const slide = getActiveSlide();
-  dispatch({ type: 'ADD_TEXT_ELEMENT', payload: { slideId: slide.id, x: 300, y: 220 } });
+  render(); // AppState.ui.view standart holatda 'library' — Kutubxona ko'rsatiladi
 })();

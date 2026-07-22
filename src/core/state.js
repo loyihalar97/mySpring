@@ -26,6 +26,7 @@
 export const AppState = {
   objectModel: { project: null },          // == Object Model State ==
   ui: {                                     // == UI / Local Editor State ==
+    view: 'library',                        // 'library' | 'editor' — Sprint R1.1: yuqori darajadagi ekran
     activeSlideId: null,
     selectedElementIds: new Set(),          // ko'p-tanlov (Shift+Click)
     mode: 'edit',                           // 'edit' | 'preview'

@@ -88,6 +88,25 @@ export function escapeHtmlText(str) {
   return div.innerHTML;
 }
 
+export function showConfirmModal({ title, message, confirmLabel = 'Tasdiqlash', onConfirm }) {
+  const backdrop = document.getElementById('modal-backdrop');
+  const modal = document.getElementById('modal');
+  modal.innerHTML = `
+    <h3>${escapeHtmlText(title)}</h3>
+    <p style="font-size:12.5px; color:var(--text-dim); margin: 0 0 16px 0; line-height:1.5;">${escapeHtmlText(message)}</p>
+    <div class="row">
+      <button id="modal-cancel">Bekor qilish</button>
+      <button id="modal-ok" class="primary" style="background:var(--danger); border-color:var(--danger); color:#fff;">${escapeHtmlText(confirmLabel)}</button>
+    </div>
+  `;
+  backdrop.classList.add('open');
+  document.getElementById('modal-cancel').onclick = () => backdrop.classList.remove('open');
+  document.getElementById('modal-ok').onclick = () => {
+    backdrop.classList.remove('open');
+    onConfirm();
+  };
+}
+
 export function showPreviewBlockedModal(issues) {
   const backdrop = document.getElementById('modal-backdrop');
   const modal = document.getElementById('modal');
